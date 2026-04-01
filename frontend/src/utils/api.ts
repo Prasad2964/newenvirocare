@@ -1,4 +1,4 @@
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || '';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://newenvirocare-1.onrender.com';
 
 class ApiClient {
   private token: string | null = null;
