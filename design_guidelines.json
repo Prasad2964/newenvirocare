@@ -1,0 +1,168 @@
+{
+  "identity": {
+    "name": "EnviroCare AI - E1 Edition",
+    "persona": "The Anti-AI Designer",
+    "principles": [
+      "Fusion over Imitation: Mix Medical Precision with Zen Organicism",
+      "Emotion First: AQI isn't a number; it's a feeling (Suffocation vs. Relief)",
+      "Content is King: Every pixel serves the 'Breath' narrative",
+      "Negative Space: Use padding to let the user breathe",
+      "Contrast: High-definition glass against deep, atmospheric backgrounds"
+    ],
+    "anti_patterns": [
+      "No generic 'Weather App Blue' gradients",
+      "No flat, boring lists - use cards with depth",
+      "No static icons - things should pulse and live",
+      "No 'System Default' spacing - double it"
+    ]
+  },
+  "technical_stack": {
+    "framework": "React Native Expo",
+    "styling": "StyleSheet.create (Strict No-CSS)",
+    "animation": "react-native-reanimated",
+    "glassmorphism": "expo-blur",
+    "icons": "@expo/vector-icons",
+    "navigation": "expo-router",
+    "safe_area": "react-native-safe-area-context"
+  },
+  "design_system": {
+    "typography": {
+      "font_family_heading": "System (iOS: San Francisco, Android: Roboto) - Weight: 800/Black",
+      "font_family_body": "System - Weight: 400/Regular",
+      "scale": {
+        "h1": { "fontSize": 42, "lineHeight": 48, "letterSpacing": -1, "fontWeight": "800" },
+        "h2": { "fontSize": 32, "lineHeight": 38, "letterSpacing": -0.5, "fontWeight": "700" },
+        "h3": { "fontSize": 24, "lineHeight": 32, "fontWeight": "600" },
+        "body": { "fontSize": 16, "lineHeight": 24, "fontWeight": "400" },
+        "caption": { "fontSize": 12, "lineHeight": 16, "fontWeight": "500", "textTransform": "uppercase", "letterSpacing": 1 }
+      }
+    },
+    "colors": {
+      "base": {
+        "background": "#000000",
+        "text_primary": "#FFFFFF",
+        "text_secondary": "rgba(255, 255, 255, 0.7)",
+        "glass_border": "rgba(255, 255, 255, 0.15)",
+        "glass_bg": "rgba(20, 20, 20, 0.6)"
+      },
+      "aqi_modes": {
+        "good": {
+          "primary": "#4ADE80",
+          "accent": "#06B6D4",
+          "background_image": "https://images.unsplash.com/photo-1760442903352-c1b3a3e97822?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzOTB8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGdyYWRpZW50JTIwbWludCUyMGJsdWUlMjBjYWxtfGVufDB8fHx8MTc3MDcxMTM0MHww&ixlib=rb-4.1.0&q=85",
+          "gradient": ["#4ADE80", "#06B6D4"]
+        },
+        "moderate": {
+          "primary": "#FACC15",
+          "accent": "#FB923C",
+          "background_image": "https://images.unsplash.com/photo-1751487285172-6f2a8fe3afda?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDR8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMGdvbGRlbiUyMGhvdXIlMjBoYXplJTIwdGV4dHVyZXxlbnwwfHx8fDE3NzA3MTEzNDB8MA&ixlib=rb-4.1.0&q=85",
+          "gradient": ["#FACC15", "#FB923C"]
+        },
+        "unhealthy": {
+          "primary": "#F87171",
+          "accent": "#991B1B",
+          "background_image": "https://images.unsplash.com/photo-1606942257943-dd1859b3e380?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzF8MHwxfHNlYXJjaHwzfHxhYnN0cmFjdCUyMHJlZCUyMHNtb2tlJTIwZGFyayUyMHRleHR1cmV8ZW58MHx8fHwxNzcwNzExMzQxfDA&ixlib=rb-4.1.0&q=85",
+          "gradient": ["#F87171", "#991B1B"]
+        },
+        "hazardous": {
+          "primary": "#DC2626",
+          "accent": "#000000",
+          "background_image": "https://images.unsplash.com/photo-1637681241471-de08fe750e94?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzh8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMGJsYWNrJTIwY2hhcmNvYWwlMjBpbmR1c3RyaWFsJTIwdGV4dHVyZXxlbnwwfHx8fDE3NzA3MTEzNDJ8MA&ixlib=rb-4.1.0&q=85",
+          "gradient": ["#DC2626", "#000000"]
+        }
+      }
+    },
+    "layout": {
+      "spacing": {
+        "xs": 4,
+        "s": 8,
+        "m": 16,
+        "l": 24,
+        "xl": 32,
+        "xxl": 48
+      },
+      "radius": {
+        "s": 8,
+        "m": 16,
+        "l": 24,
+        "full": 9999
+      }
+    }
+  },
+  "components": {
+    "ScreenWrapper": {
+      "description": "Wraps every screen. Handles background image and safe area.",
+      "structure": "View (Container) -> Image (Absolute Fill) -> BlurView (Absolute Fill, intensity 20) -> SafeAreaView -> Content",
+      "props": { "mode": "aqi_mode_string" }
+    },
+    "GlassCard": {
+      "description": "Primary container for content. Translucent with border.",
+      "library": "expo-blur",
+      "style": {
+        "overflow": "hidden",
+        "borderRadius": 24,
+        "borderWidth": 1,
+        "borderColor": "rgba(255,255,255,0.2)",
+        "backgroundColor": "rgba(0,0,0,0.3)"
+      }
+    },
+    "BreathingOrb": {
+      "description": "Central visual anchor. Pulses based on AQI.",
+      "animation_guide": "Use Reanimated. SharedValue for scale (0.8 -> 1.2) and opacity (0.6 -> 1). Loop with withRepeat(withTiming(...), -1, true). Duration depends on AQI (Good = 4000ms, Hazardous = 1000ms).",
+      "style": {
+        "width": 200,
+        "height": 200,
+        "borderRadius": 100,
+        "position": "absolute"
+      }
+    },
+    "RiskGauge": {
+      "description": "Semi-circle gauge showing risk level.",
+      "implementation": "SVG Path or View with rotation transform. Needle animates with spring physics.",
+      "library": "react-native-svg (recommended) or Views with overflow hidden"
+    },
+    "ButtonPrimary": {
+      "style": {
+        "height": 56,
+        "borderRadius": 28,
+        "backgroundColor": "rgba(255,255,255,0.15)",
+        "justifyContent": "center",
+        "alignItems": "center",
+        "borderWidth": 1,
+        "borderColor": "rgba(255,255,255,0.3)"
+      },
+      "text_style": {
+        "fontSize": 16,
+        "fontWeight": "700",
+        "textTransform": "uppercase",
+        "letterSpacing": 1
+      }
+    }
+  },
+  "universal_guidelines": {
+    "react_native_rules": [
+      "ALWAYS use StyleSheet.create. No inline styles for complex objects.",
+      "ALWAYS use SafeAreaView from react-native-safe-area-context.",
+      "Images must use { uri: string } format.",
+      "Touchable components: Use TouchableOpacity or Pressable.",
+      "Keyboard: Wrap forms in KeyboardAvoidingView (behavior: padding/height)."
+    ],
+    "accessibility": [
+      "All touchables must have minHeight: 44",
+      "Text contrast must be checked against background images (use text shadows if needed: textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4)",
+      "Add accessibilityLabel to all buttons and icons."
+    ],
+    "testing": {
+      "attribute": "testID",
+      "convention": "kebab-case (e.g., 'login-submit-btn', 'aqi-orb-display')"
+    }
+  },
+  "image_assets": {
+    "weather_backgrounds": {
+      "good": "https://images.unsplash.com/photo-1760442903352-c1b3a3e97822?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzOTB8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGdyYWRpZW50JTIwbWludCUyMGJsdWUlMjBjYWxtfGVufDB8fHx8MTc3MDcxMTM0MHww&ixlib=rb-4.1.0&q=85",
+      "moderate": "https://images.unsplash.com/photo-1751487285172-6f2a8fe3afda?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDR8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMGdvbGRlbiUyMGhvdXIlMjBoYXplJTIwdGV4dHVyZXxlbnwwfHx8fDE3NzA3MTEzNDB8MA&ixlib=rb-4.1.0&q=85",
+      "unhealthy": "https://images.unsplash.com/photo-1606942257943-dd1859b3e380?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzF8MHwxfHNlYXJjaHwzfHxhYnN0cmFjdCUyMHJlZCUyMHNtb2tlJTIwZGFyayUyMHRleHR1cmV8ZW58MHx8fHwxNzcwNzExMzQxfDA&ixlib=rb-4.1.0&q=85",
+      "hazardous": "https://images.unsplash.com/photo-1637681241471-de08fe750e94?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzh8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMGJsYWNrJTIwY2hhcmNvYWwlMjBpbmR1c3RyaWFsJTIwdGV4dHVyZXxlbnwwfHx8fDE3NzA3MTEzNDJ8MA&ixlib=rb-4.1.0&q=85"
+    }
+  }
+}

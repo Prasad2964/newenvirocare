@@ -58,6 +58,15 @@ chainlit.md
 .ipynb_checkpoints/
 .ac
 
+# Claude Code / AI tooling
+.claude/
+.emergent/
+memory/
+.gitconfig
+
+# Test reports (generated artifacts)
+test_reports/
+
 # Deployment
 .vercel
 
