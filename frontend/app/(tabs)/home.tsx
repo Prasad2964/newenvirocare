@@ -201,11 +201,19 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {/* Breathing Orb — AQI is now INSIDE the orb */}
-          <View style={styles.orbSection}>
+          {/* Breathing Orb — tap to open live AQI map */}
+          <TouchableOpacity
+            style={styles.orbSection}
+            onPress={() => router.push(`/aqi-map?city=${encodeURIComponent(city)}`)}
+            activeOpacity={0.85}
+          >
             <BreathingOrb aqi={aqi} color={tokenTheme.primary} showValue={true} />
             <Text style={[styles.aqiLabel, { color: tokenTheme.primary }]}>{tokenTheme.label} Air Quality</Text>
-          </View>
+            <View style={[styles.mapHint, { borderColor: tokenTheme.primary + '40' }]}>
+              <Ionicons name="map-outline" size={13} color={tokenTheme.primary} />
+              <Text style={[styles.mapHintText, { color: tokenTheme.primary }]}>Tap for live map</Text>
+            </View>
+          </TouchableOpacity>
 
           {/* Risk Gauge */}
           <GlassCard testID="risk-gauge-card" style={styles.gaugeCard}>
@@ -401,6 +409,13 @@ const styles = StyleSheet.create({
   aqiBadgeText: { fontSize: FONT_SIZE.sm, fontFamily: FONTS.monoBold },
   orbSection: { alignItems: 'center', marginBottom: SPACING.xxxl, paddingVertical: SPACING.lg },
   aqiLabel: { fontSize: FONT_SIZE.lg, fontFamily: FONTS.bodyMedium, marginTop: SPACING.sm },
+  mapHint: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    marginTop: 8, paddingHorizontal: 12, paddingVertical: 5,
+    borderRadius: 20, borderWidth: 1,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  mapHintText: { fontSize: 12, fontWeight: '600' },
   gaugeCard: { marginBottom: SPACING.lg, alignItems: 'center' },
   cardTitle: { fontSize: FONT_SIZE.lg, fontFamily: FONTS.headingSemibold, color: COLORS.textWhite, marginBottom: SPACING.lg, letterSpacing: 0.3 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.lg },
