@@ -293,8 +293,8 @@ def generate_rule_based_advice(aqi_data: dict, health_profile: dict) -> str:
 async def signup(req: SignupRequest):
     logger.info(f"Signup attempt for email: {req.email.lower()}")
     try:
-        existing = supabase.table("users").select("user_id").eq("email", req.email.lower()).maybe_single().execute()
-        if existing.data:
+        existing = supabase.table("users").select("user_id").eq("email", req.email.lower()).execute()
+        if existing.data and len(existing.data) > 0:
             logger.warning(f"Signup failed - email already registered: {req.email.lower()}")
             raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -320,8 +320,8 @@ async def signup(req: SignupRequest):
 async def login(req: LoginRequest):
     logger.info(f"Login attempt for email: {req.email.lower()}")
     try:
-        result = supabase.table("users").select("*").eq("email", req.email.lower()).maybe_single().execute()
-        user = result.data
+        result = supabase.table("users").select("*").eq("email", req.email.lower()).execute()
+        user = result.data[0] if result.data and len(result.data) > 0 else None
         if not user:
             logger.warning(f"Login failed - user not found: {req.email.lower()}")
             raise HTTPException(status_code=401, detail="Invalid credentials")
