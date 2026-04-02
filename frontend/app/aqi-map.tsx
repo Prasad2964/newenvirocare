@@ -164,18 +164,22 @@ export default function AqiMapScreen() {
   const displayCity = (Array.isArray(city) ? city[0] : city) || 'India';
 
   useEffect(() => {
-    // Get coordinates for the city via IP geolocation
-    fetch('https://ipapi.co/json/')
+    // Geocode the city name → lat/lon using Nominatim (OpenStreetMap)
+    // This is more accurate than calling ipapi.co again which can return ISP city
+    const query = encodeURIComponent(displayCity + ', India');
+    fetch(`https://nominatim.openstreetmap.org/search?q=${query}&format=json&limit=1`, {
+      headers: { 'Accept-Language': 'en' },
+    })
       .then(r => r.json())
-      .then(d => {
-        if (d.latitude && d.longitude) {
-          setCoords({ lat: d.latitude, lon: d.longitude });
+      .then(results => {
+        if (results && results[0]) {
+          setCoords({ lat: parseFloat(results[0].lat), lon: parseFloat(results[0].lon) });
         } else {
           setCoords({ lat: 20.5937, lon: 78.9629 }); // India center fallback
         }
       })
       .catch(() => setCoords({ lat: 20.5937, lon: 78.9629 }));
-  }, []);
+  }, [displayCity]);
 
   const htmlContent = coords ? buildMapHtml(coords.lat, coords.lon, displayCity) : null;
 
