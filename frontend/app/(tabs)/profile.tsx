@@ -40,11 +40,11 @@ export default function ProfileScreen() {
     try {
       const data = await api.get('/api/health-profile');
       setProfile(data);
-      if (data.conditions?.length) setConditions(data.conditions);
-      if (data.medications?.length) setMedications(data.medications.join(', '));
-      if (data.allergies?.length) setAllergies(data.allergies.join(', '));
-      if (data.age) setAge(String(data.age));
-      if (data.blood_group) setBloodGroup(data.blood_group);
+      setConditions(data.conditions || []);
+      setMedications(data.medications?.length ? data.medications.join(', ') : '');
+      setAllergies(data.allergies?.length ? data.allergies.join(', ') : '');
+      setAge(data.age ? String(data.age) : '');
+      setBloodGroup(data.blood_group || '');
     } catch (e) {
       console.log('Fetch profile error:', e);
     } finally {
@@ -320,74 +320,81 @@ export default function ProfileScreen() {
             {/* Health Profile */}
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Health Profile</Text>
-              {!editing && (
-                <TouchableOpacity testID="edit-profile-btn" onPress={() => setEditing(true)}>
-                  <Text style={styles.editLink}>Edit</Text>
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity testID="edit-profile-btn" onPress={() => setEditing(!editing)}>
+                <Text style={styles.editLink}>{editing ? 'Cancel' : 'Edit'}</Text>
+              </TouchableOpacity>
             </View>
 
-            {editing ? (
-              <GlassCard testID="health-edit-form">
-                <Text style={styles.fieldLabel}>Medical Conditions</Text>
-                <View style={styles.chipGrid}>
-                  {COMMON_CONDITIONS.map(c => (
-                    <TouchableOpacity
-                      key={c}
-                      testID={`condition-chip-${c.toLowerCase().replace(/\s/g, '-')}`}
-                      style={[styles.chip, conditions.includes(c) && styles.chipActive]}
-                      onPress={() => toggleCondition(c)}
-                    >
-                      <Text style={[styles.chipText, conditions.includes(c) && styles.chipTextActive]}>{c}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <Text style={styles.fieldLabel}>Age</Text>
-                <TextInput testID="age-input" style={styles.formInput} value={age} onChangeText={setAge} keyboardType="numeric" placeholder="Enter age" placeholderTextColor="rgba(255,255,255,0.3)" />
-
-                <Text style={styles.fieldLabel}>Blood Group</Text>
-                <TextInput testID="blood-group-input" style={styles.formInput} value={bloodGroup} onChangeText={setBloodGroup} placeholder="e.g. O+" placeholderTextColor="rgba(255,255,255,0.3)" />
-
-                <Text style={styles.fieldLabel}>Medications (comma separated)</Text>
-                <TextInput testID="medications-input" style={styles.formInput} value={medications} onChangeText={setMedications} placeholder="e.g. Inhaler, Aspirin" placeholderTextColor="rgba(255,255,255,0.3)" />
-
-                <Text style={styles.fieldLabel}>Allergies (comma separated)</Text>
-                <TextInput testID="allergies-input" style={styles.formInput} value={allergies} onChangeText={setAllergies} placeholder="e.g. Pollen, Dust" placeholderTextColor="rgba(255,255,255,0.3)" />
-
-                <View style={styles.formActions}>
-                  <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditing(false)}>
-                    <Text style={styles.cancelText}>Cancel</Text>
+            <GlassCard testID="health-edit-form">
+              <Text style={styles.fieldLabel}>Medical Conditions</Text>
+              <View style={styles.chipGrid}>
+                {COMMON_CONDITIONS.map(c => (
+                  <TouchableOpacity
+                    key={c}
+                    testID={`condition-chip-${c.toLowerCase().replace(/\s/g, '-')}`}
+                    style={[styles.chip, conditions.includes(c) && styles.chipActive]}
+                    onPress={() => { toggleCondition(c); setEditing(true); }}
+                  >
+                    <Text style={[styles.chipText, conditions.includes(c) && styles.chipTextActive]}>{c}</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity testID="save-profile-btn" style={styles.saveBtn} onPress={saveProfile} disabled={saving}>
-                    {saving ? <ActivityIndicator size="small" color="#000" /> : <Text style={styles.saveBtnText}>Save</Text>}
-                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.fieldLabel}>Age</Text>
+              <TextInput
+                testID="age-input"
+                style={styles.formInput}
+                value={age}
+                onChangeText={(t) => { setAge(t); setEditing(true); }}
+                keyboardType="numeric"
+                placeholder="Enter age"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+              />
+
+              <Text style={styles.fieldLabel}>Blood Group</Text>
+              <TextInput
+                testID="blood-group-input"
+                style={styles.formInput}
+                value={bloodGroup}
+                onChangeText={(t) => { setBloodGroup(t); setEditing(true); }}
+                placeholder="e.g. O+"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+              />
+
+              <Text style={styles.fieldLabel}>Medications (comma separated)</Text>
+              <TextInput
+                testID="medications-input"
+                style={[styles.formInput, { height: 56 }]}
+                value={medications}
+                onChangeText={(t) => { setMedications(t); setEditing(true); }}
+                placeholder="e.g. Inhaler, Aspirin"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+              />
+
+              <Text style={styles.fieldLabel}>Allergies (comma separated)</Text>
+              <TextInput
+                testID="allergies-input"
+                style={[styles.formInput, { height: 56 }]}
+                value={allergies}
+                onChangeText={(t) => { setAllergies(t); setEditing(true); }}
+                placeholder="e.g. Pollen, Dust"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+              />
+
+              {editing && (
+                <TouchableOpacity testID="save-profile-btn" style={[styles.saveBtn, { marginTop: 16 }]} onPress={saveProfile} disabled={saving}>
+                  {saving ? <ActivityIndicator size="small" color="#000" /> : <Text style={styles.saveBtnText}>Save Profile</Text>}
+                </TouchableOpacity>
+              )}
+
+              {!editing && conditions.length === 0 && !age && !bloodGroup && !medications && !allergies && (
+                <View style={styles.noProfile}>
+                  <Ionicons name="heart-outline" size={32} color="rgba(255,255,255,0.2)" />
+                  <Text style={styles.noProfileText}>No health data yet</Text>
+                  <Text style={styles.noProfileSub}>Fill in the fields above or scan a prescription</Text>
                 </View>
-              </GlassCard>
-            ) : (
-              <GlassCard testID="health-profile-view">
-                {conditions.length > 0 ? (
-                  <>
-                    <Text style={styles.fieldLabel}>Conditions</Text>
-                    <View style={styles.chipGrid}>
-                      {conditions.map(c => (
-                        <View key={c} style={[styles.chip, styles.chipActive]}>
-                          <Text style={styles.chipTextActive}>{c}</Text>
-                        </View>
-                      ))}
-                    </View>
-                    {age ? <><Text style={styles.fieldLabel}>Age</Text><Text style={styles.fieldValue}>{age}</Text></> : null}
-                    {bloodGroup ? <><Text style={styles.fieldLabel}>Blood Group</Text><Text style={styles.fieldValue}>{bloodGroup}</Text></> : null}
-                  </>
-                ) : (
-                  <View style={styles.noProfile}>
-                    <Ionicons name="heart-outline" size={32} color="rgba(255,255,255,0.2)" />
-                    <Text style={styles.noProfileText}>No health data added yet</Text>
-                    <Text style={styles.noProfileSub}>Add your medical conditions for personalized risk assessment</Text>
-                  </View>
-                )}
-              </GlassCard>
-            )}
+              )}
+            </GlassCard>
 
             {/* Symptom Logging */}
             <View style={styles.sectionHeader}>

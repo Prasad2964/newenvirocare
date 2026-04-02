@@ -437,10 +437,11 @@ async def get_health_profile(user=Depends(get_current_user)):
 @api_router.delete("/health-profile")
 async def delete_health_profile(user=Depends(get_current_user)):
     try:
-        supabase.table("health_profiles").delete().eq("user_id", user["user_id"]).execute()
+        result = supabase.table("health_profiles").delete().eq("user_id", user["user_id"]).execute()
+        logger.info(f"Health profile deleted for user {user['user_id']}")
         return {"message": "Health profile deleted"}
     except Exception as e:
-        logger.error(f"Delete health profile error: {e}")
+        logger.error(f"Delete health profile error for user {user['user_id']}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete profile: {str(e)}")
 
 # ===================== RISK ASSESSMENT =====================
