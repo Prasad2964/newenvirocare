@@ -21,18 +21,38 @@ import { SkeletonDashboard } from '../../src/components/Skeleton';
 import { COLORS, FONTS, FONT_SIZE, SPACING, RADIUS, getAqiTheme as getTokenTheme } from '../../src/utils/tokens';
 
 async function detectUserCity(fallback: string): Promise<string> {
+  // Try IP geolocation first — works on web without any permission
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch('https://ipapi.co/json/', { signal: controller.signal });
+    clearTimeout(timer);
+    const data = await res.json();
+    console.log('[Location] IP geo city:', data.city);
+    if (data.city) return data.city;
+  } catch (e) {
+    console.log('[Location] IP geo failed:', e);
+  }
+
+  // Fallback: GPS via expo-location
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') return fallback;
-    const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-    const [geo] = await Location.reverseGeocodeAsync({
-      latitude: loc.coords.latitude,
-      longitude: loc.coords.longitude,
-    });
-    return geo?.city || geo?.subregion || geo?.region || fallback;
-  } catch {
-    return fallback;
+    if (status === 'granted') {
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const [geo] = await Location.reverseGeocodeAsync({
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+      });
+      const gpsCity = geo?.city || geo?.subregion || geo?.region;
+      console.log('[Location] GPS city:', gpsCity);
+      if (gpsCity) return gpsCity;
+    }
+  } catch (e) {
+    console.log('[Location] GPS failed:', e);
   }
+
+  console.log('[Location] Using fallback:', fallback);
+  return fallback;
 }
 
 export default function HomeScreen() {
@@ -53,21 +73,18 @@ export default function HomeScreen() {
     try {
       setError(false);
       const settings = await api.get('/api/settings').catch(() => null);
-      const savedCity = settings?.default_city;
-      const userCity = (savedCity && savedCity !== 'Mumbai')
-        ? savedCity
-        : await detectUserCity(savedCity || 'Mumbai');
-      setCity(userCity);
+      const detectedCity = await detectUserCity(settings?.default_city || 'Mumbai');
+      setCity(detectedCity);
 
       const [aqi, risk] = await Promise.all([
-        api.get(`/api/aqi/${userCity}`),
-        api.post('/api/risk-assessment', { city: userCity }).catch(() => null),
+        api.get(`/api/aqi/${detectedCity}`),
+        api.post('/api/risk-assessment', { city: detectedCity }).catch(() => null),
       ]);
       setAqiData(aqi);
       if (risk) setRiskData(risk);
 
       api.post('/api/activity', {
-        type: 'aqi_check', city: userCity,
+        type: 'aqi_check', city: detectedCity,
         aqi: aqi?.aqi, risk_level: risk?.risk?.level || 'low',
         description: `AQI ${aqi?.aqi} - ${aqi?.level}`,
       }).catch(() => {});
@@ -80,7 +97,7 @@ export default function HomeScreen() {
       if (exp) setExposure(exp);
 
       if (aqi?.aqi > 150) {
-        sendAqiAlert(aqi.aqi, userCity, aqi.level).catch(() => {});
+        sendAqiAlert(aqi.aqi, detectedCity, aqi.level).catch(() => {});
       }
     } catch (e) {
       setError(true);
