@@ -917,19 +917,35 @@ def parse_medical_text(text: str) -> dict:
 @api_router.post("/ocr/prescription")
 async def ocr_prescription(req: OCRRequest, user=Depends(get_current_user)):
     try:
+        from PIL import Image
+        import io
+
         ocr_api_key = os.environ.get('OCR_SPACE_KEY', 'helloworld')
+
+        # Compress image to stay under 1MB limit
+        image_data = b64lib.b64decode(req.image_base64)
+        image = Image.open(io.BytesIO(image_data)).convert('RGB')
+        max_dim = 1200
+        w, h = image.size
+        if w > max_dim or h > max_dim:
+            scale = max_dim / max(w, h)
+            image = image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+        buffer = io.BytesIO()
+        image.save(buffer, format='JPEG', quality=60, optimize=True)
+        compressed_b64 = b64lib.b64encode(buffer.getvalue()).decode('utf-8')
+        logger.info(f"OCR image compressed: original={len(req.image_base64)} chars, compressed={len(compressed_b64)} chars")
 
         response = http_requests.post(
             'https://api.ocr.space/parse/image',
             data={
                 'apikey': ocr_api_key,
-                'base64Image': f'data:{req.mime_type};base64,{req.image_base64}',
+                'base64Image': f'data:image/jpeg;base64,{compressed_b64}',
                 'language': 'eng',
                 'isOverlayRequired': False,
                 'detectOrientation': True,
                 'scale': True,
             },
-            timeout=30
+            timeout=60
         )
 
         result = response.json()
