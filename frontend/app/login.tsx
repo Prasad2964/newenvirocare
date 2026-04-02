@@ -20,6 +20,41 @@ import { COLORS, FONTS, FONT_SIZE, SPACING, RADIUS } from '../src/utils/tokens';
 
 WebBrowser.maybeCompleteAuthSession();
 
+// Isolated component — Google hook only runs when Client ID actually exists
+function GoogleButton({
+  loading,
+  onStart,
+  onSuccess,
+  onFail,
+}: {
+  loading: boolean;
+  onStart: () => void;
+  onSuccess: (idToken: string, accessToken: string) => void;
+  onFail: () => void;
+}) {
+  const [, response, promptAsync] = Google.useAuthRequest({
+    webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID!,
+    scopes: ['openid', 'profile', 'email'],
+  });
+
+  useEffect(() => {
+    if (!response) return;
+    if (response.type === 'success') {
+      const idToken = response.params?.id_token ?? response.authentication?.idToken ?? '';
+      const accessToken = response.params?.access_token ?? response.authentication?.accessToken ?? '';
+      onSuccess(idToken, accessToken);
+    } else {
+      onFail();
+    }
+  }, [response]);
+
+  return (
+    <TouchableOpacity style={styles.googleBtn} onPress={() => { onStart(); promptAsync(); }} disabled={loading} activeOpacity={0.85}>
+      {loading ? <ActivityIndicator size="small" color="#444" /> : <><GoogleLogo size={20} /><Text style={styles.googleBtnText}>Continue with Google</Text></>}
+    </TouchableOpacity>
+  );
+}
+
 // Google "G" Logo SVG
 function GoogleLogo({ size = 20 }: { size?: number }) {
   return (
@@ -111,26 +146,6 @@ export default function LoginScreen() {
   const { login, loginWithGoogle, isFirstLaunch } = useAuth();
   const router = useRouter();
 
-  const googleConfigured = !!process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || 'not-configured',
-    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || 'not-configured',
-    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || 'not-configured',
-    scopes: ['openid', 'profile', 'email'],
-  });
-
-  useEffect(() => {
-    if (response?.type === 'success') {
-      const idToken = response.params?.id_token ?? (response.authentication?.idToken ?? '');
-      const accessToken = response.params?.access_token ?? (response.authentication?.accessToken ?? '');
-      handleGoogleSuccess(idToken, accessToken);
-    } else if (response?.type === 'error') {
-      showToast('Google sign-in was cancelled or failed', 'error');
-      setGoogleLoading(false);
-    } else if (response?.type === 'dismiss') {
-      setGoogleLoading(false);
-    }
-  }, [response]);
 
   // Animated orb
   const orbScale = useSharedValue(0.9);
@@ -194,19 +209,6 @@ export default function LoginScreen() {
     }
   }
 
-  async function handleGoogleSignIn() {
-    if (!googleConfigured) {
-      showToast('Google Sign-In not set up yet', 'info');
-      return;
-    }
-    setGoogleLoading(true);
-    try {
-      await promptAsync();
-    } catch {
-      setGoogleLoading(false);
-    }
-  }
-
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safe}>
@@ -237,22 +239,24 @@ export default function LoginScreen() {
               <Text style={styles.subtitle}>Sign in to monitor your environment</Text>
 
               {/* Google Sign-In Button */}
-              <TouchableOpacity
-                testID="google-signin-btn"
-                style={styles.googleBtn}
-                onPress={handleGoogleSignIn}
-                activeOpacity={0.85}
-                disabled={googleLoading}
-              >
-                {googleLoading ? (
-                  <ActivityIndicator size="small" color="#444" />
-                ) : (
-                  <>
-                    <GoogleLogo size={20} />
-                    <Text style={styles.googleBtnText}>Continue with Google</Text>
-                  </>
-                )}
-              </TouchableOpacity>
+              {process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ? (
+                <GoogleButton
+                  loading={googleLoading}
+                  onStart={() => setGoogleLoading(true)}
+                  onSuccess={handleGoogleSuccess}
+                  onFail={() => { showToast('Google sign-in cancelled', 'info'); setGoogleLoading(false); }}
+                />
+              ) : (
+                <TouchableOpacity
+                  testID="google-signin-btn"
+                  style={[styles.googleBtn, { opacity: 0.6 }]}
+                  onPress={() => showToast('Google Sign-In not configured yet', 'info')}
+                  activeOpacity={0.85}
+                >
+                  <GoogleLogo size={20} />
+                  <Text style={styles.googleBtnText}>Continue with Google</Text>
+                </TouchableOpacity>
+              )}
 
               {/* Divider */}
               <View style={styles.divider}>
