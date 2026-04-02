@@ -13,6 +13,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import * as Google from 'expo-auth-session/providers/google';
+import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { useAuth } from '../src/context/AuthContext';
 import { showToast } from '../src/components/Toast';
@@ -32,8 +33,12 @@ function GoogleButton({
   onSuccess: (idToken: string, accessToken: string) => void;
   onFail: () => void;
 }) {
+  const redirectUri = AuthSession.makeRedirectUri();
+  console.log('[Google OAuth] redirectUri:', redirectUri);
+
   const [, response, promptAsync] = Google.useAuthRequest({
     webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID!,
+    redirectUri,
     scopes: ['openid', 'profile', 'email'],
   });
 
