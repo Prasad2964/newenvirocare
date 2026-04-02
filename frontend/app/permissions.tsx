@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import * as ImagePicker from 'expo-image-picker';
+import { requestWebNotificationPermission } from '../src/services/notifications';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
 interface PermStatus {
@@ -48,7 +49,8 @@ export default function PermissionsScreen() {
       request: async () => {
         try {
           if (Platform.OS === 'web') {
-            setPerms(p => ({ ...p, notifications: 'granted' }));
+            const granted = await requestWebNotificationPermission();
+            setPerms(p => ({ ...p, notifications: granted ? 'granted' : 'denied' }));
             return;
           }
           const { status } = await Notifications.requestPermissionsAsync();

@@ -11,7 +11,7 @@ import * as Location from 'expo-location';
 import { useAuth } from '../../src/context/AuthContext';
 import api from '../../src/utils/api';
 import { getAqiTheme, getRiskColor } from '../../src/utils/theme';
-import { sendAqiAlert } from '../../src/services/notifications';
+import { sendAqiAlert, getPersonalizedThreshold } from '../../src/services/notifications';
 import { showToast } from '../../src/components/Toast';
 import BreathingOrb from '../../src/components/BreathingOrb';
 import GlassCard from '../../src/components/GlassCard';
@@ -68,6 +68,7 @@ export default function HomeScreen() {
   const [error, setError] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const appState = useRef(AppState.currentState);
+  const conditionsRef = useRef<string[]>([]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -76,12 +77,14 @@ export default function HomeScreen() {
       const detectedCity = await detectUserCity(settings?.default_city || 'Mumbai');
       setCity(detectedCity);
 
-      const [aqi, risk] = await Promise.all([
+      const [aqi, risk, profile] = await Promise.all([
         api.get(`/api/aqi/${detectedCity}`),
         api.post('/api/risk-assessment', { city: detectedCity }).catch(() => null),
+        api.get('/api/health-profile').catch(() => null),
       ]);
       setAqiData(aqi);
       if (risk) setRiskData(risk);
+      if (profile?.conditions) conditionsRef.current = profile.conditions;
 
       api.post('/api/activity', {
         type: 'aqi_check', city: detectedCity,
@@ -96,8 +99,9 @@ export default function HomeScreen() {
       if (gam) setGamification(gam);
       if (exp) setExposure(exp);
 
-      if (aqi?.aqi > 150) {
-        sendAqiAlert(aqi.aqi, detectedCity, aqi.level).catch(() => {});
+      const threshold = getPersonalizedThreshold(conditionsRef.current);
+      if (aqi?.aqi >= threshold) {
+        sendAqiAlert(aqi.aqi, detectedCity, aqi.level, conditionsRef.current).catch(() => {});
       }
     } catch (e) {
       setError(true);
@@ -115,12 +119,14 @@ export default function HomeScreen() {
       if (appState.current === 'active') {
         api.get(`/api/aqi/${city}`).then(aqi => {
           setAqiData(aqi);
-          if (aqi?.aqi > 200) {
-            showToast(`AQI Alert: ${city} AQI is ${aqi.aqi}!`, 'warning');
+          const threshold = getPersonalizedThreshold(conditionsRef.current);
+          if (aqi?.aqi >= threshold) {
+            sendAqiAlert(aqi.aqi, city, aqi.level, conditionsRef.current).catch(() => {});
+            if (aqi.aqi > 200) showToast(`AQI Alert: ${city} is ${aqi.aqi}!`, 'warning');
           }
         }).catch(() => {});
       }
-    }, 5 * 60 * 1000);
+    }, 30 * 60 * 1000);
 
     const sub = AppState.addEventListener('change', (state) => {
       if (appState.current.match(/inactive|background/) && state === 'active') {
