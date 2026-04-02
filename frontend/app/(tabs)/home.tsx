@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Location from 'expo-location';
 import { useAuth } from '../../src/context/AuthContext';
 import api from '../../src/utils/api';
 import { getAqiTheme, getRiskColor } from '../../src/utils/theme';
@@ -18,6 +19,21 @@ import RiskGauge from '../../src/components/RiskGauge';
 import PressableScale from '../../src/components/PressableScale';
 import { SkeletonDashboard } from '../../src/components/Skeleton';
 import { COLORS, FONTS, FONT_SIZE, SPACING, RADIUS, getAqiTheme as getTokenTheme } from '../../src/utils/tokens';
+
+async function detectUserCity(fallback: string): Promise<string> {
+  try {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') return fallback;
+    const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    const [geo] = await Location.reverseGeocodeAsync({
+      latitude: loc.coords.latitude,
+      longitude: loc.coords.longitude,
+    });
+    return geo?.city || geo?.subregion || geo?.region || fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 export default function HomeScreen() {
   const { user } = useAuth();
@@ -37,7 +53,10 @@ export default function HomeScreen() {
     try {
       setError(false);
       const settings = await api.get('/api/settings').catch(() => null);
-      const userCity = settings?.default_city || 'Mumbai';
+      const savedCity = settings?.default_city;
+      const userCity = (savedCity && savedCity !== 'Mumbai')
+        ? savedCity
+        : await detectUserCity(savedCity || 'Mumbai');
       setCity(userCity);
 
       const [aqi, risk] = await Promise.all([
