@@ -79,7 +79,7 @@ export default function ProfileScreen() {
   }
 
   async function deleteProfile() {
-    Alert.alert('Delete Profile', 'Are you sure?', [
+    Alert.alert('Delete Profile', 'This will remove all your health data. Are you sure?', [
       { text: 'Cancel' },
       {
         text: 'Delete', style: 'destructive',
@@ -89,8 +89,11 @@ export default function ProfileScreen() {
             setProfile(null);
             setConditions([]); setMedications(''); setAllergies('');
             setAge(''); setBloodGroup('');
+            setEditing(false);
             Alert.alert('Done', 'Health profile deleted');
-          } catch (e) { console.log(e); }
+          } catch (e: any) {
+            Alert.alert('Error', e.message || 'Failed to delete profile. Please try again.');
+          }
         },
       },
     ]);
@@ -306,8 +309,11 @@ export default function ProfileScreen() {
                     setOcrResult(null);
                   }}
                 >
-                  <Text style={styles.saveBtnText}>Apply to Profile</Text>
+                  <Text style={styles.saveBtnText}>Apply & Edit Profile</Text>
                 </TouchableOpacity>
+                <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, textAlign: 'center', marginTop: 8 }}>
+                  You can fill in age, blood group and other details after applying
+                </Text>
               </GlassCard>
             )}
 
