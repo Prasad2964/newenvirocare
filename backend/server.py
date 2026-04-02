@@ -859,52 +859,80 @@ async def get_symptom_insights(user=Depends(get_current_user)):
 
 # ===================== OCR ENDPOINT =====================
 
+def parse_medical_text(text: str) -> dict:
+    """Parse raw OCR text into structured medical data."""
+    full_text_lower = text.lower()
+    lines = [l.strip() for l in text.split('\n') if l.strip()]
+
+    KNOWN_CONDITIONS = [
+        'asthma', 'copd', 'diabetes', 'hypertension', 'heart disease',
+        'lung disease', 'bronchitis', 'allergies', 'pregnancy', 'arthritis',
+        'depression', 'anxiety', 'thyroid', 'anemia', 'obesity', 'cancer',
+        'tuberculosis', 'pneumonia', 'sinusitis', 'eczema', 'psoriasis',
+    ]
+    KNOWN_MEDS = [
+        'aspirin', 'ibuprofen', 'paracetamol', 'amoxicillin', 'metformin',
+        'atorvastatin', 'omeprazole', 'cetirizine', 'salbutamol', 'insulin',
+        'amlodipine', 'lisinopril', 'metoprolol', 'pantoprazole', 'azithromycin',
+        'doxycycline', 'prednisone', 'clopidogrel', 'losartan', 'gabapentin',
+        'levothyroxine', 'montelukast', 'fluticasone', 'budesonide',
+    ]
+
+    conditions = [c.title() for c in KNOWN_CONDITIONS if c in full_text_lower]
+    medications = [m.title() for m in KNOWN_MEDS if m in full_text_lower]
+
+    # Extract allergy lines
+    allergies = []
+    for line in lines:
+        if 'allerg' in line.lower() or 'avoid' in line.lower():
+            allergies.append(line)
+
+    # Extract dosage / indicator lines (e.g. "BP: 120/80", "Sugar: 180")
+    indicators = {}
+    for line in lines:
+        for kw in ['bp:', 'blood pressure', 'sugar:', 'glucose:', 'cholesterol:', 'weight:', 'bmi:']:
+            if kw in line.lower():
+                indicators[kw.replace(':', '').title()] = line.strip()
+
+    notes = text[:600].strip() if len(text) > 600 else text.strip()
+
+    return {
+        "conditions": list(dict.fromkeys(conditions)),
+        "medications": list(dict.fromkeys(medications)),
+        "allergies": list(dict.fromkeys(allergies)),
+        "indicators": indicators,
+        "notes": notes,
+    }
+
 @api_router.post("/ocr/prescription")
 async def ocr_prescription(req: OCRRequest, user=Depends(get_current_user)):
-    api_key = os.environ.get('EMERGENT_LLM_KEY', '')
-    if not api_key:
-        raise HTTPException(status_code=503, detail="OCR service not configured. Add EMERGENT_LLM_KEY to environment.")
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        import pytesseract
+        from PIL import Image
+        import io
 
         image_data = b64lib.b64decode(req.image_base64)
+        image = Image.open(io.BytesIO(image_data)).convert('RGB')
 
-        prompt = """Analyze this medical document (prescription, report, or health record).
-Extract ONLY information clearly present in the document and return valid JSON:
-{
-  "conditions": ["list of diagnosed diseases or medical conditions"],
-  "medications": ["list of prescribed medications"],
-  "allergies": ["list of allergies"],
-  "indicators": {"key": "value health measurements e.g. Blood Pressure: 120/80"},
-  "notes": "any other relevant health info"
-}
-Return ONLY the JSON object, no markdown, no explanation."""
+        # Upscale small images for better OCR accuracy
+        w, h = image.size
+        if w < 1000:
+            scale = 1000 / w
+            image = image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
 
-        response = model.generate_content([
-            prompt,
-            {"mime_type": req.mime_type, "data": image_data}
-        ])
+        raw_text = pytesseract.image_to_string(image, config='--psm 6')
+        logger.info(f"OCR raw text length for user {user['user_id']}: {len(raw_text)} chars")
 
-        text = response.text.strip()
-        # Strip markdown code fences if present
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        text = text.strip()
+        if not raw_text.strip():
+            return {"success": True, "extracted": {
+                "conditions": [], "medications": [], "allergies": [],
+                "indicators": {}, "notes": "No text could be extracted. Try a clearer image."
+            }}
 
-        try:
-            extracted = json.loads(text)
-        except json.JSONDecodeError:
-            extracted = {"conditions": [], "medications": [], "allergies": [], "indicators": {}, "notes": text}
-
-        logger.info(f"OCR success for user {user['user_id']}: {len(extracted.get('conditions',[]))} conditions found")
+        extracted = parse_medical_text(raw_text)
+        logger.info(f"OCR success for user {user['user_id']}: {len(extracted['conditions'])} conditions, {len(extracted['medications'])} meds")
         return {"success": True, "extracted": extracted}
 
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"OCR error for user {user['user_id']}: {e}")
         raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
