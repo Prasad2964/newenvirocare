@@ -913,32 +913,48 @@ def parse_medical_text(text: str) -> dict:
 @api_router.post("/ocr/prescription")
 async def ocr_prescription(req: OCRRequest, user=Depends(get_current_user)):
     try:
-        import pytesseract
-        from PIL import Image
-        import io
+        ocr_api_key = os.environ.get('OCR_SPACE_KEY', 'helloworld')
 
-        image_data = b64lib.b64decode(req.image_base64)
-        image = Image.open(io.BytesIO(image_data)).convert('RGB')
+        response = http_requests.post(
+            'https://api.ocr.space/parse/image',
+            data={
+                'apikey': ocr_api_key,
+                'base64Image': f'data:{req.mime_type};base64,{req.image_base64}',
+                'language': 'eng',
+                'isOverlayRequired': False,
+                'detectOrientation': True,
+                'scale': True,
+            },
+            timeout=30
+        )
 
-        # Upscale small images for better OCR accuracy
-        w, h = image.size
-        if w < 1000:
-            scale = 1000 / w
-            image = image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+        result = response.json()
+        logger.info(f"OCR.space response for user {user['user_id']}: exitCode={result.get('OCRExitCode')}")
 
-        raw_text = pytesseract.image_to_string(image, config='--psm 6')
-        logger.info(f"OCR raw text length for user {user['user_id']}: {len(raw_text)} chars")
+        if result.get('IsErroredOnProcessing'):
+            error_msg = result.get('ErrorMessage', ['OCR failed'])[0] if result.get('ErrorMessage') else 'OCR failed'
+            raise HTTPException(status_code=500, detail=f"OCR processing failed: {error_msg}")
 
-        if not raw_text.strip():
+        parsed_results = result.get('ParsedResults', [])
+        if not parsed_results:
             return {"success": True, "extracted": {
                 "conditions": [], "medications": [], "allergies": [],
                 "indicators": {}, "notes": "No text could be extracted. Try a clearer image."
+            }}
+
+        raw_text = parsed_results[0].get('ParsedText', '')
+        if not raw_text.strip():
+            return {"success": True, "extracted": {
+                "conditions": [], "medications": [], "allergies": [],
+                "indicators": {}, "notes": "No text found in image. Try a clearer photo."
             }}
 
         extracted = parse_medical_text(raw_text)
         logger.info(f"OCR success for user {user['user_id']}: {len(extracted['conditions'])} conditions, {len(extracted['medications'])} meds")
         return {"success": True, "extracted": extracted}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"OCR error for user {user['user_id']}: {e}")
         raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
