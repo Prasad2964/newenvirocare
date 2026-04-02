@@ -291,33 +291,52 @@ def generate_rule_based_advice(aqi_data: dict, health_profile: dict) -> str:
 
 @api_router.post("/auth/signup")
 async def signup(req: SignupRequest):
-    existing = supabase.table("users").select("user_id").eq("email", req.email.lower()).maybe_single().execute()
-    if existing.data:
-        raise HTTPException(status_code=400, detail="Email already registered")
+    logger.info(f"Signup attempt for email: {req.email.lower()}")
+    try:
+        existing = supabase.table("users").select("user_id").eq("email", req.email.lower()).maybe_single().execute()
+        if existing.data:
+            logger.warning(f"Signup failed - email already registered: {req.email.lower()}")
+            raise HTTPException(status_code=400, detail="Email already registered")
 
-    hashed = bcrypt.hashpw(req.password.encode(), bcrypt.gensalt()).decode()
-    user_id = str(uuid4())
-    user = {
-        "user_id": user_id,
-        "name": req.name,
-        "email": req.email.lower(),
-        "password": hashed,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    supabase.table("users").insert(user).execute()
-    return {"message": "Account created successfully", "user_id": user_id}
+        hashed = bcrypt.hashpw(req.password.encode(), bcrypt.gensalt()).decode()
+        user_id = str(uuid4())
+        user = {
+            "user_id": user_id,
+            "name": req.name,
+            "email": req.email.lower(),
+            "password": hashed,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        supabase.table("users").insert(user).execute()
+        logger.info(f"Signup success for user_id: {user_id}")
+        return {"message": "Account created successfully", "user_id": user_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Signup error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Signup failed: {str(e)}")
 
 @api_router.post("/auth/login")
 async def login(req: LoginRequest):
-    result = supabase.table("users").select("*").eq("email", req.email.lower()).maybe_single().execute()
-    user = result.data
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    if not bcrypt.checkpw(req.password.encode(), user["password"].encode()):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+    logger.info(f"Login attempt for email: {req.email.lower()}")
+    try:
+        result = supabase.table("users").select("*").eq("email", req.email.lower()).maybe_single().execute()
+        user = result.data
+        if not user:
+            logger.warning(f"Login failed - user not found: {req.email.lower()}")
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        if not bcrypt.checkpw(req.password.encode(), user["password"].encode()):
+            logger.warning(f"Login failed - wrong password for: {req.email.lower()}")
+            raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    token = create_token(user["user_id"], user["name"], user["email"])
-    return {"token": token, "user": {"user_id": user["user_id"], "name": user["name"], "email": user["email"]}}
+        token = create_token(user["user_id"], user["name"], user["email"])
+        logger.info(f"Login success for user_id: {user['user_id']}")
+        return {"token": token, "user": {"user_id": user["user_id"], "name": user["name"], "email": user["email"]}}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Login error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Login failed: {str(e)}")
 
 @api_router.get("/auth/me")
 async def get_me(user=Depends(get_current_user)):
