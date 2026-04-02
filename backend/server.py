@@ -430,8 +430,9 @@ async def save_health_profile(req: HealthProfileRequest, user=Depends(get_curren
 
 @api_router.get("/health-profile")
 async def get_health_profile(user=Depends(get_current_user)):
-    result = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).maybe_single().execute()
-    return result.data or {"conditions": [], "medications": [], "allergies": [], "notes": None}
+    result = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).execute()
+    data = (getattr(result, 'data', None) or [])
+    return data[0] if data else {"conditions": [], "medications": [], "allergies": [], "notes": None}
 
 @api_router.delete("/health-profile")
 async def delete_health_profile(user=Depends(get_current_user)):
@@ -443,8 +444,8 @@ async def delete_health_profile(user=Depends(get_current_user)):
 @api_router.post("/risk-assessment")
 async def risk_assessment(req: RiskAssessmentRequest, user=Depends(get_current_user)):
     aqi_data = generate_city_aqi(req.city)
-    result = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).maybe_single().execute()
-    profile = result.data or {}
+    result = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).execute()
+    profile = ((getattr(result, 'data', None) or []) or [None])[0] or {}
     conditions = profile.get("conditions", [])
 
     risk = calculate_risk_score(aqi_data["aqi"], conditions)
@@ -489,7 +490,8 @@ async def delete_routine(routine_id: str, user=Depends(get_current_user)):
 async def ai_adjust_routines(req: RoutineAdjustRequest, user=Depends(get_current_user)):
     routines = supabase.table("routines").select("*").eq("user_id", user["user_id"]).limit(100).execute().data
     aqi_data = generate_city_aqi(req.city)
-    health_profile = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).maybe_single().execute().data or {}
+    _hp = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).execute()
+    health_profile = ((getattr(_hp, 'data', None) or [None])[0]) or {}
 
     adjustments = []
     for r in routines:
@@ -559,7 +561,8 @@ async def get_symptoms(user=Depends(get_current_user)):
 async def plan_travel(req: TravelRequest, user=Depends(get_current_user)):
     origin_aqi = generate_city_aqi(req.origin)
     dest_aqi = generate_city_aqi(req.destination)
-    profile = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).maybe_single().execute().data or {}
+    _p = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).execute()
+    profile = ((getattr(_p, 'data', None) or [None])[0]) or {}
     conditions = profile.get("conditions", [])
 
     origin_risk = calculate_risk_score(origin_aqi["aqi"], conditions)
@@ -597,7 +600,8 @@ async def plan_travel(req: TravelRequest, user=Depends(get_current_user)):
 @api_router.get("/health-report")
 async def get_health_report(user=Depends(get_current_user)):
     symptoms = supabase.table("symptoms").select("*").eq("user_id", user["user_id"]).order("logged_at", desc=True).limit(100).execute().data
-    profile = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).maybe_single().execute().data or {}
+    _p = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).execute()
+    profile = ((getattr(_p, 'data', None) or [None])[0]) or {}
 
     total_logs = len(symptoms)
     symptom_counts = {}
@@ -659,15 +663,16 @@ async def save_settings(req: SettingsRequest, user=Depends(get_current_user)):
 
 @api_router.get("/settings")
 async def get_settings(user=Depends(get_current_user)):
-    result = supabase.table("settings").select("*").eq("user_id", user["user_id"]).maybe_single().execute()
-    if not result.data:
+    result = supabase.table("settings").select("*").eq("user_id", user["user_id"]).execute()
+    _settings_data = (getattr(result, 'data', None) or [])
+    if not _settings_data:
         return {
             "safe_aqi_threshold": 50, "risky_aqi_threshold": 150,
             "dangerous_aqi_threshold": 300, "notify_daily_updates": True,
             "notify_high_risk": True, "notify_travel": True,
             "notify_routine": True, "default_city": "Mumbai"
         }
-    return result.data
+    return _settings_data[0]
 
 # ===================== NOTIFICATION LOG =====================
 
@@ -789,7 +794,8 @@ async def get_gamification(user=Depends(get_current_user)):
     activities = supabase.table("activities").select("*").eq("user_id", uid).limit(500).execute().data
     routines = supabase.table("routines").select("*").eq("user_id", uid).limit(100).execute().data
     symptoms = supabase.table("symptoms").select("*").eq("user_id", uid).limit(100).execute().data
-    profile = supabase.table("health_profiles").select("*").eq("user_id", uid).maybe_single().execute().data
+    _pr = supabase.table("health_profiles").select("*").eq("user_id", uid).execute()
+    profile = ((getattr(_pr, 'data', None) or [None])[0]) or {}
 
     good_days = len(set(a["timestamp"][:10] for a in activities if a.get("aqi", 999) <= 100))
     travel_plans = len([a for a in activities if a.get("type") == "travel_plan"])
