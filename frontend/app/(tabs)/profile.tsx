@@ -35,16 +35,28 @@ export default function ProfileScreen() {
   const [logSymptomMode, setLogSymptomMode] = useState(false);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrResult, setOcrResult] = useState<{conditions: string[], medications: string[], allergies: string[], notes: string} | null>(null);
+  const [symptomSaving, setSymptomSaving] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [originalProfile, setOriginalProfile] = useState<any>(null);
 
   const fetchProfile = useCallback(async () => {
     try {
       const data = await api.get('/api/health-profile');
       setProfile(data);
-      setConditions(data.conditions || []);
-      setMedications(data.medications?.length ? data.medications.join(', ') : '');
-      setAllergies(data.allergies?.length ? data.allergies.join(', ') : '');
-      setAge(data.age ? String(data.age) : '');
-      setBloodGroup(data.blood_group || '');
+      const snap = {
+        conditions: data.conditions || [],
+        medications: data.medications?.length ? data.medications.join(', ') : '',
+        allergies: data.allergies?.length ? data.allergies.join(', ') : '',
+        age: data.age ? String(data.age) : '',
+        bloodGroup: data.blood_group || '',
+      };
+      setOriginalProfile(snap);
+      setConditions(snap.conditions);
+      setMedications(snap.medications);
+      setAllergies(snap.allergies);
+      setAge(snap.age);
+      setBloodGroup(snap.bloodGroup);
     } catch (e) {
       console.log('Fetch profile error:', e);
     } finally {
@@ -78,25 +90,34 @@ export default function ProfileScreen() {
     }
   }
 
-  async function deleteProfile() {
-    Alert.alert('Delete Profile', 'This will remove all your health data. Are you sure?', [
-      { text: 'Cancel' },
-      {
-        text: 'Delete', style: 'destructive',
-        onPress: async () => {
-          try {
-            await api.delete('/api/health-profile');
-            setProfile(null);
-            setConditions([]); setMedications(''); setAllergies('');
-            setAge(''); setBloodGroup('');
-            setEditing(false);
-            Alert.alert('Done', 'Health profile deleted');
-          } catch (e: any) {
-            Alert.alert('Error', e.message || 'Failed to delete profile. Please try again.');
-          }
-        },
-      },
-    ]);
+  function cancelEdit() {
+    if (originalProfile) {
+      setConditions(originalProfile.conditions);
+      setMedications(originalProfile.medications);
+      setAllergies(originalProfile.allergies);
+      setAge(originalProfile.age);
+      setBloodGroup(originalProfile.bloodGroup);
+    }
+    setEditing(false);
+  }
+
+  async function confirmDeleteProfile() {
+    setDeleting(true);
+    try {
+      await api.delete('/api/health-profile');
+      console.log('[Profile] Health profile deleted');
+      setProfile(null);
+      setOriginalProfile(null);
+      setConditions([]); setMedications(''); setAllergies('');
+      setAge(''); setBloodGroup('');
+      setEditing(false);
+      setShowDeleteConfirm(false);
+    } catch (e: any) {
+      console.error('[Profile] Delete failed:', e.message);
+      Alert.alert('Error', e.message || 'Failed to delete. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function logSymptomEntry() {
@@ -104,12 +125,20 @@ export default function ProfileScreen() {
       Alert.alert('Error', 'Add at least one symptom');
       return;
     }
+    setSymptomSaving(true);
     try {
+      console.log('[Symptoms] Logging:', symptoms);
       await api.post('/api/symptoms', { symptoms, severity: 5 });
-      Alert.alert('Logged', 'Symptoms recorded');
-      setSymptoms([]); setLogSymptomMode(false);
+      console.log('[Symptoms] Logged successfully');
+      Alert.alert('Logged', 'Symptoms recorded successfully');
+      setSymptoms([]);
+      setSymptomInput('');
+      setLogSymptomMode(false);
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      console.error('[Symptoms] Log failed:', e.message);
+      Alert.alert('Error', e.message || 'Failed to log symptoms. Please try again.');
+    } finally {
+      setSymptomSaving(false);
     }
   }
 
@@ -320,9 +349,11 @@ export default function ProfileScreen() {
             {/* Health Profile */}
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Health Profile</Text>
-              <TouchableOpacity testID="edit-profile-btn" onPress={() => setEditing(!editing)}>
-                <Text style={styles.editLink}>{editing ? 'Cancel' : 'Edit'}</Text>
-              </TouchableOpacity>
+              {editing && (
+                <TouchableOpacity testID="cancel-edit-btn" onPress={cancelEdit}>
+                  <Text style={[styles.editLink, { color: '#F87171' }]}>Cancel</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             <GlassCard testID="health-edit-form">
@@ -369,6 +400,7 @@ export default function ProfileScreen() {
                 onChangeText={(t) => { setMedications(t); setEditing(true); }}
                 placeholder="e.g. Inhaler, Aspirin"
                 placeholderTextColor="rgba(255,255,255,0.3)"
+                multiline
               />
 
               <Text style={styles.fieldLabel}>Allergies (comma separated)</Text>
@@ -379,19 +411,23 @@ export default function ProfileScreen() {
                 onChangeText={(t) => { setAllergies(t); setEditing(true); }}
                 placeholder="e.g. Pollen, Dust"
                 placeholderTextColor="rgba(255,255,255,0.3)"
+                multiline
               />
 
-              {editing && (
-                <TouchableOpacity testID="save-profile-btn" style={[styles.saveBtn, { marginTop: 16 }]} onPress={saveProfile} disabled={saving}>
-                  {saving ? <ActivityIndicator size="small" color="#000" /> : <Text style={styles.saveBtnText}>Save Profile</Text>}
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity
+                testID="save-profile-btn"
+                style={[styles.saveBtn, { marginTop: 16, opacity: saving ? 0.6 : 1 }]}
+                onPress={saveProfile}
+                disabled={saving}
+              >
+                {saving ? <ActivityIndicator size="small" color="#000" /> : <Text style={styles.saveBtnText}>Save Profile</Text>}
+              </TouchableOpacity>
 
-              {!editing && conditions.length === 0 && !age && !bloodGroup && !medications && !allergies && (
-                <View style={styles.noProfile}>
-                  <Ionicons name="heart-outline" size={32} color="rgba(255,255,255,0.2)" />
+              {conditions.length === 0 && !age && !bloodGroup && !medications && !allergies && (
+                <View style={[styles.noProfile, { marginTop: 12 }]}>
+                  <Ionicons name="heart-outline" size={28} color="rgba(255,255,255,0.15)" />
                   <Text style={styles.noProfileText}>No health data yet</Text>
-                  <Text style={styles.noProfileSub}>Fill in the fields above or scan a prescription</Text>
+                  <Text style={styles.noProfileSub}>Fill in fields above or scan a prescription</Text>
                 </View>
               )}
             </GlassCard>
@@ -427,11 +463,19 @@ export default function ProfileScreen() {
                   ))}
                 </View>
                 <View style={styles.formActions}>
-                  <TouchableOpacity style={styles.cancelBtn} onPress={() => { setLogSymptomMode(false); setSymptoms([]); }}>
+                  <TouchableOpacity style={styles.cancelBtn} onPress={() => { setLogSymptomMode(false); setSymptoms([]); setSymptomInput(''); }}>
                     <Text style={styles.cancelText}>Cancel</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity testID="submit-symptoms-btn" style={styles.saveBtn} onPress={logSymptomEntry}>
-                    <Text style={styles.saveBtnText}>Log Symptoms</Text>
+                  <TouchableOpacity
+                    testID="submit-symptoms-btn"
+                    style={[styles.saveBtn, { opacity: symptomSaving ? 0.6 : 1 }]}
+                    onPress={logSymptomEntry}
+                    disabled={symptomSaving}
+                  >
+                    {symptomSaving
+                      ? <ActivityIndicator size="small" color="#000" />
+                      : <Text style={styles.saveBtnText}>Log Symptoms</Text>
+                    }
                   </TouchableOpacity>
                 </View>
               </GlassCard>
@@ -453,10 +497,38 @@ export default function ProfileScreen() {
                 <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.2)" style={{ marginLeft: 'auto' }} />
               </TouchableOpacity>
               <View style={styles.actionDivider} />
-              <TouchableOpacity testID="delete-profile-btn" style={styles.actionRow} onPress={deleteProfile}>
-                <Ionicons name="trash-outline" size={20} color="#FB923C" />
-                <Text style={[styles.actionText, { color: '#FB923C' }]}>Delete Health Profile</Text>
-              </TouchableOpacity>
+              {showDeleteConfirm ? (
+                <View style={{ paddingVertical: 12 }}>
+                  <Text style={{ color: '#FB923C', fontSize: 14, fontWeight: '600', marginBottom: 10 }}>
+                    Delete all health data? This cannot be undone.
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <TouchableOpacity
+                      style={[styles.cancelBtn, { flex: 1 }]}
+                      onPress={() => setShowDeleteConfirm(false)}
+                      disabled={deleting}
+                    >
+                      <Text style={styles.cancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      testID="confirm-delete-profile-btn"
+                      style={[styles.saveBtn, { flex: 1, backgroundColor: '#FB923C', opacity: deleting ? 0.6 : 1 }]}
+                      onPress={confirmDeleteProfile}
+                      disabled={deleting}
+                    >
+                      {deleting
+                        ? <ActivityIndicator size="small" color="#fff" />
+                        : <Text style={[styles.saveBtnText, { color: '#fff' }]}>Yes, Delete</Text>
+                      }
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <TouchableOpacity testID="delete-profile-btn" style={styles.actionRow} onPress={() => setShowDeleteConfirm(true)}>
+                  <Ionicons name="trash-outline" size={20} color="#FB923C" />
+                  <Text style={[styles.actionText, { color: '#FB923C' }]}>Delete Health Profile</Text>
+                </TouchableOpacity>
+              )}
               <View style={styles.actionDivider} />
               <TouchableOpacity testID="delete-account-btn" style={styles.actionRow} onPress={handleDeleteAccount}>
                 <Ionicons name="person-remove-outline" size={20} color="#F87171" />

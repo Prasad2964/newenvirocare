@@ -543,22 +543,31 @@ async def ai_adjust_routines(req: RoutineAdjustRequest, user=Depends(get_current
 
 @api_router.post("/symptoms")
 async def log_symptom(req: SymptomRequest, user=Depends(get_current_user)):
-    symptom_id = str(uuid4())
-    entry = {
-        "symptom_id": symptom_id,
-        "user_id": user["user_id"],
-        "symptoms": req.symptoms,
-        "severity": req.severity,
-        "notes": req.notes,
-        "logged_at": datetime.now(timezone.utc).isoformat()
-    }
-    supabase.table("symptoms").insert(entry).execute()
-    return entry
+    try:
+        symptom_id = str(uuid4())
+        entry = {
+            "symptom_id": symptom_id,
+            "user_id": user["user_id"],
+            "symptoms": req.symptoms,
+            "severity": req.severity,
+            "notes": req.notes,
+            "logged_at": datetime.now(timezone.utc).isoformat()
+        }
+        supabase.table("symptoms").insert(entry).execute()
+        logger.info(f"Symptom logged for user {user['user_id']}: {req.symptoms}")
+        return entry
+    except Exception as e:
+        logger.error(f"Log symptom error for user {user['user_id']}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to log symptoms: {str(e)}")
 
 @api_router.get("/symptoms")
 async def get_symptoms(user=Depends(get_current_user)):
-    result = supabase.table("symptoms").select("*").eq("user_id", user["user_id"]).order("logged_at", desc=True).limit(50).execute()
-    return result.data
+    try:
+        result = supabase.table("symptoms").select("*").eq("user_id", user["user_id"]).order("logged_at", desc=True).limit(50).execute()
+        return getattr(result, 'data', None) or []
+    except Exception as e:
+        logger.error(f"Get symptoms error: {e}")
+        return []
 
 # ===================== TRAVEL ENDPOINT =====================
 
