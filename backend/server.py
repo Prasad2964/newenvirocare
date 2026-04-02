@@ -14,6 +14,9 @@ from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 import jwt
 import bcrypt
+import base64 as b64lib
+import json
+import requests as http_requests
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -77,6 +80,10 @@ class RiskAssessmentRequest(BaseModel):
 
 class RoutineAdjustRequest(BaseModel):
     city: str
+
+class OCRRequest(BaseModel):
+    image_base64: str
+    mime_type: str = "image/jpeg"
 
 # ===================== JWT HELPERS =====================
 
@@ -188,6 +195,49 @@ def generate_city_aqi(city: str) -> dict:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "is_emergency": aqi > 300
     }
+
+# ===================== REAL AQI (WAQI with mock fallback) =====================
+
+async def fetch_city_aqi(city: str) -> dict:
+    waqi_token = os.environ.get('WAQI_TOKEN', '')
+    if waqi_token:
+        try:
+            response = http_requests.get(
+                f"https://api.waqi.info/feed/{city}/?token={waqi_token}",
+                timeout=5
+            )
+            data = response.json()
+            if data.get('status') == 'ok':
+                d = data['data']
+                aqi = int(d.get('aqi', 0))
+                iaqi = d.get('iaqi', {})
+                return {
+                    "city": city.title(),
+                    "aqi": aqi,
+                    "level": get_aqi_level(aqi),
+                    "primary_pollutant": "PM2.5",
+                    "pollutants": {
+                        "pm25": iaqi.get('pm25', {}).get('v', 0),
+                        "pm10": iaqi.get('pm10', {}).get('v', 0),
+                        "no2":  iaqi.get('no2',  {}).get('v', 0),
+                        "so2":  iaqi.get('so2',  {}).get('v', 0),
+                        "co":   iaqi.get('co',   {}).get('v', 0),
+                        "o3":   iaqi.get('o3',   {}).get('v', 0),
+                    },
+                    "weather": {
+                        "temperature": iaqi.get('t', {}).get('v', 25),
+                        "humidity":    iaqi.get('h', {}).get('v', 50),
+                        "wind_speed":  iaqi.get('w', {}).get('v', 10),
+                        "description": "Live data"
+                    },
+                    "mask": get_mask_recommendation(aqi),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "is_emergency": aqi > 300,
+                    "source": "live"
+                }
+        except Exception as e:
+            logger.warning(f"WAQI API failed for {city}, using mock: {e}")
+    return generate_city_aqi(city)
 
 # ===================== RISK CALCULATOR =====================
 
@@ -355,11 +405,11 @@ async def delete_account(user=Depends(get_current_user)):
 
 @api_router.get("/aqi/{city}")
 async def get_city_aqi(city: str):
-    return generate_city_aqi(city)
+    return await fetch_city_aqi(city)
 
 @api_router.post("/aqi/compare")
 async def compare_cities(req: CityCompareRequest):
-    return {"city1": generate_city_aqi(req.city1), "city2": generate_city_aqi(req.city2)}
+    return {"city1": await fetch_city_aqi(req.city1), "city2": await fetch_city_aqi(req.city2)}
 
 # ===================== HEALTH PROFILE ENDPOINTS =====================
 
@@ -806,6 +856,58 @@ async def get_symptom_insights(user=Depends(get_current_user)):
             })
 
     return {"insights": insights, "has_data": True, "total_symptoms": len(symptoms)}
+
+# ===================== OCR ENDPOINT =====================
+
+@api_router.post("/ocr/prescription")
+async def ocr_prescription(req: OCRRequest, user=Depends(get_current_user)):
+    api_key = os.environ.get('EMERGENT_LLM_KEY', '')
+    if not api_key:
+        raise HTTPException(status_code=503, detail="OCR service not configured. Add EMERGENT_LLM_KEY to environment.")
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+
+        image_data = b64lib.b64decode(req.image_base64)
+
+        prompt = """Analyze this medical document (prescription, report, or health record).
+Extract ONLY information clearly present in the document and return valid JSON:
+{
+  "conditions": ["list of diagnosed diseases or medical conditions"],
+  "medications": ["list of prescribed medications"],
+  "allergies": ["list of allergies"],
+  "indicators": {"key": "value health measurements e.g. Blood Pressure: 120/80"},
+  "notes": "any other relevant health info"
+}
+Return ONLY the JSON object, no markdown, no explanation."""
+
+        response = model.generate_content([
+            prompt,
+            {"mime_type": req.mime_type, "data": image_data}
+        ])
+
+        text = response.text.strip()
+        # Strip markdown code fences if present
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        text = text.strip()
+
+        try:
+            extracted = json.loads(text)
+        except json.JSONDecodeError:
+            extracted = {"conditions": [], "medications": [], "allergies": [], "indicators": {}, "notes": text}
+
+        logger.info(f"OCR success for user {user['user_id']}: {len(extracted.get('conditions',[]))} conditions found")
+        return {"success": True, "extracted": extracted}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"OCR error for user {user['user_id']}: {e}")
+        raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
 
 # ===================== APP SETUP =====================
 

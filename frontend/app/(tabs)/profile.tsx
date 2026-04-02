@@ -33,6 +33,8 @@ export default function ProfileScreen() {
   const [symptoms, setSymptoms] = useState<string[]>([]);
   const [symptomInput, setSymptomInput] = useState('');
   const [logSymptomMode, setLogSymptomMode] = useState(false);
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrResult, setOcrResult] = useState<{conditions: string[], medications: string[], allergies: string[], notes: string} | null>(null);
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -115,30 +117,36 @@ export default function ProfileScreen() {
     }
   }
 
+  async function processOCR(imageBase64: string, mimeType: string = 'image/jpeg') {
+    setOcrLoading(true);
+    setOcrResult(null);
+    try {
+      const data = await api.post('/api/ocr/prescription', { image_base64: imageBase64, mime_type: mimeType });
+      if (data.success && data.extracted) {
+        setOcrResult({
+          conditions: data.extracted.conditions || [],
+          medications: data.extracted.medications || [],
+          allergies: data.extracted.allergies || [],
+          notes: data.extracted.notes || '',
+        });
+      }
+    } catch (e: any) {
+      Alert.alert('OCR Failed', e.message || 'Could not extract data from image');
+    } finally {
+      setOcrLoading(false);
+    }
+  }
+
   async function handleUploadPrescription() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: false,
-        quality: 0.8,
+        quality: 0.7,
+        base64: true,
       });
-      if (!result.canceled && result.assets[0]) {
-        // For now, show simulated OCR extraction
-        Alert.alert(
-          'Prescription Uploaded',
-          'OCR scanning detected the following conditions:\n\n• Asthma\n• Seasonal Allergies\n\nWould you like to add these to your profile?',
-          [
-            { text: 'Cancel' },
-            {
-              text: 'Add to Profile',
-              onPress: () => {
-                const newConditions = [...new Set([...conditions, 'Asthma', 'Allergies'])];
-                setConditions(newConditions);
-                setEditing(true);
-              },
-            },
-          ]
-        );
+      if (!result.canceled && result.assets[0]?.base64) {
+        await processOCR(result.assets[0].base64);
       }
     } catch (e) {
       Alert.alert('Error', 'Could not open gallery');
@@ -155,24 +163,11 @@ export default function ProfileScreen() {
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ['images'],
         allowsEditing: false,
-        quality: 0.8,
+        quality: 0.7,
+        base64: true,
       });
-      if (!result.canceled && result.assets[0]) {
-        Alert.alert(
-          'Prescription Scanned',
-          'OCR scanning detected the following conditions:\n\n• COPD\n• Hypertension\n\nWould you like to add these to your profile?',
-          [
-            { text: 'Cancel' },
-            {
-              text: 'Add to Profile',
-              onPress: () => {
-                const newConditions = [...new Set([...conditions, 'COPD', 'Hypertension'])];
-                setConditions(newConditions);
-                setEditing(true);
-              },
-            },
-          ]
-        );
+      if (!result.canceled && result.assets[0]?.base64) {
+        await processOCR(result.assets[0].base64);
       }
     } catch (e) {
       Alert.alert('Error', 'Could not open camera');
@@ -228,15 +223,93 @@ export default function ProfileScreen() {
               <Text style={styles.sectionTitle}>Upload Prescription</Text>
             </View>
             <View style={styles.ocrRow}>
-              <TouchableOpacity testID="upload-prescription-btn" style={styles.ocrBtn} onPress={handleUploadPrescription}>
+              <TouchableOpacity testID="upload-prescription-btn" style={styles.ocrBtn} onPress={handleUploadPrescription} disabled={ocrLoading}>
                 <Ionicons name="image-outline" size={24} color="#06B6D4" />
                 <Text style={styles.ocrBtnText}>Gallery</Text>
               </TouchableOpacity>
-              <TouchableOpacity testID="camera-prescription-btn" style={styles.ocrBtn} onPress={handleCameraCapture}>
+              <TouchableOpacity testID="camera-prescription-btn" style={styles.ocrBtn} onPress={handleCameraCapture} disabled={ocrLoading}>
                 <Ionicons name="camera-outline" size={24} color="#A78BFA" />
                 <Text style={styles.ocrBtnText}>Camera</Text>
               </TouchableOpacity>
             </View>
+
+            {ocrLoading && (
+              <GlassCard style={{ alignItems: 'center', paddingVertical: 24 }}>
+                <ActivityIndicator size="large" color="#4ADE80" />
+                <Text style={{ color: 'rgba(255,255,255,0.6)', marginTop: 12, fontSize: 14 }}>Scanning document with AI...</Text>
+              </GlassCard>
+            )}
+
+            {ocrResult && !ocrLoading && (
+              <GlassCard testID="ocr-result-card">
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <Text style={{ color: '#4ADE80', fontWeight: '700', fontSize: 16 }}>Extracted from Document</Text>
+                  <TouchableOpacity onPress={() => setOcrResult(null)}>
+                    <Ionicons name="close-circle" size={22} color="rgba(255,255,255,0.3)" />
+                  </TouchableOpacity>
+                </View>
+
+                {ocrResult.conditions.length > 0 && (
+                  <>
+                    <Text style={styles.fieldLabel}>Conditions Found</Text>
+                    <View style={styles.chipGrid}>
+                      {ocrResult.conditions.map((c, i) => (
+                        <View key={i} style={[styles.chip, { backgroundColor: 'rgba(6,182,212,0.12)', borderColor: 'rgba(6,182,212,0.3)' }]}>
+                          <Text style={{ fontSize: 13, color: '#06B6D4', fontWeight: '600' }}>{c}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </>
+                )}
+
+                {ocrResult.medications.length > 0 && (
+                  <>
+                    <Text style={styles.fieldLabel}>Medications Found</Text>
+                    <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14 }}>{ocrResult.medications.join(', ')}</Text>
+                  </>
+                )}
+
+                {ocrResult.allergies.length > 0 && (
+                  <>
+                    <Text style={styles.fieldLabel}>Allergies Found</Text>
+                    <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14 }}>{ocrResult.allergies.join(', ')}</Text>
+                  </>
+                )}
+
+                {ocrResult.notes ? (
+                  <>
+                    <Text style={styles.fieldLabel}>Notes</Text>
+                    <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>{ocrResult.notes}</Text>
+                  </>
+                ) : null}
+
+                {ocrResult.conditions.length === 0 && ocrResult.medications.length === 0 && (
+                  <Text style={{ color: 'rgba(255,255,255,0.4)', textAlign: 'center', paddingVertical: 8 }}>
+                    No medical data could be extracted. Try a clearer image.
+                  </Text>
+                )}
+
+                <TouchableOpacity
+                  style={[styles.saveBtn, { marginTop: 16 }]}
+                  onPress={() => {
+                    const mergedConditions = [...new Set([...conditions, ...ocrResult.conditions])];
+                    const mergedMeds = medications
+                      ? medications + (ocrResult.medications.length ? ', ' + ocrResult.medications.join(', ') : '')
+                      : ocrResult.medications.join(', ');
+                    const mergedAllergies = allergies
+                      ? allergies + (ocrResult.allergies.length ? ', ' + ocrResult.allergies.join(', ') : '')
+                      : ocrResult.allergies.join(', ');
+                    setConditions(mergedConditions);
+                    setMedications(mergedMeds);
+                    setAllergies(mergedAllergies);
+                    setEditing(true);
+                    setOcrResult(null);
+                  }}
+                >
+                  <Text style={styles.saveBtnText}>Apply to Profile</Text>
+                </TouchableOpacity>
+              </GlassCard>
+            )}
 
             {/* Health Profile */}
             <View style={styles.sectionHeader}>
