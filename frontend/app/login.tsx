@@ -111,10 +111,11 @@ export default function LoginScreen() {
   const { login, loginWithGoogle, isFirstLaunch } = useAuth();
   const router = useRouter();
 
+  const googleConfigured = !!process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
   const [request, response, promptAsync] = Google.useAuthRequest({
-    webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
-    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
-    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+    webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || 'not-configured',
+    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || 'not-configured',
+    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || 'not-configured',
     scopes: ['openid', 'profile', 'email'],
   });
 
@@ -194,8 +195,8 @@ export default function LoginScreen() {
   }
 
   async function handleGoogleSignIn() {
-    if (!process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID) {
-      showToast('Google Client ID not configured', 'error');
+    if (!googleConfigured) {
+      showToast('Google Sign-In not set up yet', 'info');
       return;
     }
     setGoogleLoading(true);
