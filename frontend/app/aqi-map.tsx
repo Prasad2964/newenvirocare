@@ -147,6 +147,9 @@ function buildMapHtml(lat: number, lon: number, city: string): string {
         + '</div>'
       )
       .openPopup();
+
+    // Force Leaflet to recalculate container size after render
+    setTimeout(function() { map.invalidateSize(); }, 300);
   <\/script>
 </body>
 </html>`;
@@ -209,20 +212,20 @@ export default function AqiMapScreen() {
               // @ts-ignore
               <iframe
                 srcDoc={htmlContent}
-                style={{ width: '100%', height: '100%', border: 'none', display: loading ? 'none' : 'block' }}
+                style={{ width: '100%', height: '100%', border: 'none' }}
                 onLoad={() => setLoading(false)}
                 title="Live AQI Map"
-                sandbox="allow-scripts allow-same-origin"
               />
             ) : (
               <WebView
                 source={{ html: htmlContent }}
-                style={[styles.webview, loading && { opacity: 0 }]}
+                style={styles.webview}
                 onLoad={() => setLoading(false)}
                 onError={() => setLoading(false)}
                 javaScriptEnabled
                 domStorageEnabled
                 originWhitelist={['*']}
+                mixedContentMode="always"
               />
             )
           )}
