@@ -39,6 +39,8 @@ export default function ProfileScreen() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [originalProfile, setOriginalProfile] = useState<any>(null);
+  const [loggedSymptoms, setLoggedSymptoms] = useState<any[]>([]);
+  const [ocrApplied, setOcrApplied] = useState(false);
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -64,7 +66,19 @@ export default function ProfileScreen() {
     }
   }, []);
 
-  useEffect(() => { fetchProfile(); }, [fetchProfile]);
+  const fetchSymptoms = useCallback(async () => {
+    try {
+      const data = await api.get('/api/symptoms');
+      setLoggedSymptoms(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.log('Fetch symptoms error:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchProfile();
+    fetchSymptoms();
+  }, [fetchProfile, fetchSymptoms]);
 
   function toggleCondition(c: string) {
     setConditions(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]);
@@ -134,6 +148,7 @@ export default function ProfileScreen() {
       setSymptoms([]);
       setSymptomInput('');
       setLogSymptomMode(false);
+      fetchSymptoms();
     } catch (e: any) {
       console.error('[Symptoms] Log failed:', e.message);
       Alert.alert('Error', e.message || 'Failed to log symptoms. Please try again.');
@@ -335,6 +350,7 @@ export default function ProfileScreen() {
                     setMedications(mergedMeds);
                     setAllergies(mergedAllergies);
                     setEditing(true);
+                    setOcrApplied(true);
                     setOcrResult(null);
                   }}
                 >
@@ -355,6 +371,16 @@ export default function ProfileScreen() {
                 </TouchableOpacity>
               )}
             </View>
+
+            {ocrApplied && (
+              <View style={styles.ocrBanner}>
+                <Ionicons name="checkmark-circle" size={18} color="#4ADE80" />
+                <Text style={styles.ocrBannerText}>OCR data applied — review below and fill in missing details like age and blood group, then save.</Text>
+                <TouchableOpacity onPress={() => setOcrApplied(false)}>
+                  <Ionicons name="close" size={16} color="rgba(255,255,255,0.4)" />
+                </TouchableOpacity>
+              </View>
+            )}
 
             <GlassCard testID="health-edit-form">
               <Text style={styles.fieldLabel}>Medical Conditions</Text>
@@ -486,6 +512,49 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             )}
 
+            {/* Symptom History */}
+            {loggedSymptoms.length > 0 && (
+              <>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Symptom History</Text>
+                  <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)' }}>Last {Math.min(loggedSymptoms.length, 10)}</Text>
+                </View>
+                {loggedSymptoms.slice(0, 10).map((entry, i) => {
+                  const date = entry.logged_at ? new Date(entry.logged_at) : null;
+                  const dateStr = date
+                    ? date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                    : '';
+                  const timeStr = date
+                    ? date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+                    : '';
+                  return (
+                    <GlassCard key={entry.symptom_id || i} style={styles.symptomHistoryCard}>
+                      <View style={styles.symptomHistoryHeader}>
+                        <View style={styles.symptomHistoryMeta}>
+                          <Ionicons name="pulse" size={14} color="#06B6D4" />
+                          <Text style={styles.symptomHistoryDate}>{dateStr}</Text>
+                          <Text style={styles.symptomHistoryTime}>{timeStr}</Text>
+                        </View>
+                        <View style={styles.severityBadge}>
+                          <Text style={styles.severityText}>Sev {entry.severity ?? 5}/10</Text>
+                        </View>
+                      </View>
+                      <View style={[styles.chipGrid, { marginTop: 8 }]}>
+                        {(entry.symptoms || []).map((s: string, j: number) => (
+                          <View key={j} style={styles.symptomTag}>
+                            <Text style={styles.symptomTagText}>{s}</Text>
+                          </View>
+                        ))}
+                      </View>
+                      {entry.notes ? (
+                        <Text style={styles.symptomNotes}>{entry.notes}</Text>
+                      ) : null}
+                    </GlassCard>
+                  );
+                })}
+              </>
+            )}
+
             {/* Actions */}
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Account</Text>
@@ -607,4 +676,26 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
   },
   ocrBtnText: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.6)' },
+  ocrBanner: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 12,
+    backgroundColor: 'rgba(74,222,128,0.08)', borderWidth: 1, borderColor: 'rgba(74,222,128,0.25)',
+    borderRadius: 12, padding: 12,
+  },
+  ocrBannerText: { flex: 1, fontSize: 13, color: 'rgba(255,255,255,0.7)', lineHeight: 18 },
+  symptomHistoryCard: { marginBottom: 10 },
+  symptomHistoryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  symptomHistoryMeta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  symptomHistoryDate: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.7)' },
+  symptomHistoryTime: { fontSize: 12, color: 'rgba(255,255,255,0.35)' },
+  severityBadge: {
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
+    backgroundColor: 'rgba(6,182,212,0.12)', borderWidth: 1, borderColor: 'rgba(6,182,212,0.25)',
+  },
+  severityText: { fontSize: 12, color: '#06B6D4', fontWeight: '600' },
+  symptomTag: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16,
+    backgroundColor: 'rgba(167,139,250,0.12)', borderWidth: 1, borderColor: 'rgba(167,139,250,0.25)',
+  },
+  symptomTagText: { fontSize: 13, color: '#A78BFA', fontWeight: '500' },
+  symptomNotes: { fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 8, fontStyle: 'italic' },
 });
