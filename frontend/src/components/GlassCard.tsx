@@ -35,9 +35,9 @@ export default function GlassCard({ children, style, testID, glowColor }: Props)
   return (
     <View testID={testID} style={[styles.card, glowColor ? { shadowColor: glowColor } : undefined, style]}>
       {/* Light streak shimmer */}
-      <Animated.View style={[styles.shimmer, shimmerStyle]} />
+      <Animated.View pointerEvents="none" style={[styles.shimmer, shimmerStyle]} />
       {/* Subtle noise grain layer */}
-      <View style={styles.grain} />
+      <View pointerEvents="none" style={styles.grain} />
       {children}
     </View>
   );
