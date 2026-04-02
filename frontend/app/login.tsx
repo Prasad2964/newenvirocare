@@ -12,9 +12,13 @@ import Animated, {
   interpolate,
 } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
+import * as Google from 'expo-auth-session/providers/google';
+import * as WebBrowser from 'expo-web-browser';
 import { useAuth } from '../src/context/AuthContext';
 import { showToast } from '../src/components/Toast';
 import { COLORS, FONTS, FONT_SIZE, SPACING, RADIUS } from '../src/utils/tokens';
+
+WebBrowser.maybeCompleteAuthSession();
 
 // Google "G" Logo SVG
 function GoogleLogo({ size = 20 }: { size?: number }) {
@@ -104,8 +108,28 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const { login, isFirstLaunch } = useAuth();
+  const { login, loginWithGoogle, isFirstLaunch } = useAuth();
   const router = useRouter();
+
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
+    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+    scopes: ['openid', 'profile', 'email'],
+  });
+
+  useEffect(() => {
+    if (response?.type === 'success') {
+      const idToken = response.params?.id_token ?? (response.authentication?.idToken ?? '');
+      const accessToken = response.params?.access_token ?? (response.authentication?.accessToken ?? '');
+      handleGoogleSuccess(idToken, accessToken);
+    } else if (response?.type === 'error') {
+      showToast('Google sign-in was cancelled or failed', 'error');
+      setGoogleLoading(false);
+    } else if (response?.type === 'dismiss') {
+      setGoogleLoading(false);
+    }
+  }, [response]);
 
   // Animated orb
   const orbScale = useSharedValue(0.9);
@@ -157,13 +181,29 @@ export default function LoginScreen() {
     }
   }
 
-  async function handleGoogleSignIn() {
-    setGoogleLoading(true);
-    // Mock Google sign-in with delay
-    setTimeout(() => {
+  async function handleGoogleSuccess(idToken: string, accessToken: string) {
+    try {
+      await loginWithGoogle(idToken, accessToken);
+      showToast('Welcome!', 'success');
+      router.replace(isFirstLaunch ? '/permissions' : '/(tabs)/home');
+    } catch (e: any) {
+      showToast(e.message || 'Google sign-in failed', 'error');
+    } finally {
       setGoogleLoading(false);
-      showToast('Google Sign-In coming soon! Use email login.', 'info');
-    }, 1500);
+    }
+  }
+
+  async function handleGoogleSignIn() {
+    if (!process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID) {
+      showToast('Google Client ID not configured', 'error');
+      return;
+    }
+    setGoogleLoading(true);
+    try {
+      await promptAsync();
+    } catch {
+      setGoogleLoading(false);
+    }
   }
 
   return (

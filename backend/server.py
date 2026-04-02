@@ -394,6 +394,78 @@ async def login(req: LoginRequest):
 async def get_me(user=Depends(get_current_user)):
     return {"user_id": user["user_id"], "name": user["name"], "email": user["email"]}
 
+@api_router.post("/auth/google")
+async def google_auth(body: dict):
+    id_token_str = body.get("id_token")
+    access_token_str = body.get("access_token")
+
+    google_info = None
+
+    # Verify id_token via Google tokeninfo
+    if id_token_str:
+        try:
+            r = http_requests.get(
+                f"https://oauth2.googleapis.com/tokeninfo?id_token={id_token_str}",
+                timeout=10
+            )
+            if r.status_code == 200:
+                data = r.json()
+                if "error" not in data:
+                    google_info = data
+        except Exception as e:
+            logger.warning(f"Google id_token verify failed: {e}")
+
+    # Fallback: verify access_token via userinfo endpoint
+    if not google_info and access_token_str:
+        try:
+            r = http_requests.get(
+                "https://www.googleapis.com/oauth2/v2/userinfo",
+                headers={"Authorization": f"Bearer {access_token_str}"},
+                timeout=10
+            )
+            if r.status_code == 200:
+                google_info = r.json()
+        except Exception as e:
+            logger.warning(f"Google access_token verify failed: {e}")
+
+    if not google_info:
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+
+    email = (google_info.get("email") or "").lower()
+    name = google_info.get("name") or google_info.get("given_name") or email.split("@")[0]
+    if not email:
+        raise HTTPException(status_code=400, detail="Google account has no email")
+
+    try:
+        result = supabase.table("users").select("*").eq("email", email).execute()
+        users_data = getattr(result, 'data', None) or []
+
+        if users_data:
+            user = users_data[0]
+            logger.info(f"Google login for existing user: {email}")
+        else:
+            user_id = str(uuid4())
+            user = {
+                "user_id": user_id,
+                "name": name,
+                "email": email,
+                "password": "",  # Google users have no password
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            supabase.table("users").insert(user).execute()
+            logger.info(f"Google signup — new user created: {email}")
+
+        token = create_token(user["user_id"], user["name"], user["email"])
+        return {
+            "token": token,
+            "user": {"user_id": user["user_id"], "name": user["name"], "email": user["email"]}
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Google auth error: {e}")
+        raise HTTPException(status_code=500, detail="Google authentication failed")
+
 @api_router.delete("/auth/account")
 async def delete_account(user=Depends(get_current_user)):
     uid = user["user_id"]

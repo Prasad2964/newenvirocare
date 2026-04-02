@@ -15,6 +15,7 @@ interface AuthContextType {
   isFirstLaunch: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (name: string, email: string, password: string) => Promise<void>;
+  loginWithGoogle: (idToken: string, accessToken?: string) => Promise<void>;
   logout: () => Promise<void>;
   setFirstLaunchDone: () => Promise<void>;
 }
@@ -26,6 +27,7 @@ const AuthContext = createContext<AuthContextType>({
   isFirstLaunch: true,
   login: async () => {},
   signup: async () => {},
+  loginWithGoogle: async () => {},
   logout: async () => {},
   setFirstLaunchDone: async () => {},
 });
@@ -83,6 +85,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(res.token);
   }
 
+  async function loginWithGoogle(idToken: string, accessToken?: string) {
+    const res = await api.post('/api/auth/google', { id_token: idToken, access_token: accessToken });
+    api.setToken(res.token);
+    await AsyncStorage.setItem('auth_token', res.token);
+    setUser(res.user);
+    setToken(res.token);
+  }
+
   async function logout() {
     api.setToken(null);
     await AsyncStorage.removeItem('auth_token');
@@ -96,7 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, isFirstLaunch, login, signup, logout, setFirstLaunchDone }}>
+    <AuthContext.Provider value={{ user, token, loading, isFirstLaunch, login, signup, loginWithGoogle, logout, setFirstLaunchDone }}>
       {children}
     </AuthContext.Provider>
   );
