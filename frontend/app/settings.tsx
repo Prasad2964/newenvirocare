@@ -13,6 +13,36 @@ import * as ImagePicker from 'expo-image-picker';
 import api from '../src/utils/api';
 import GlassCard from '../src/components/GlassCard';
 
+const WORLD_CITIES = [
+  // India
+  'Mumbai', 'Delhi', 'Bangalore', 'Hyderabad', 'Chennai', 'Kolkata', 'Pune', 'Ahmedabad',
+  'Jaipur', 'Surat', 'Lucknow', 'Kanpur', 'Nagpur', 'Indore', 'Bhopal', 'Patna',
+  'Vadodara', 'Ludhiana', 'Agra', 'Nashik', 'Meerut', 'Rajkot', 'Varanasi', 'Srinagar',
+  'Amritsar', 'Coimbatore', 'Madurai', 'Chandigarh', 'Kochi', 'Guwahati',
+  // USA
+  'New York', 'Los Angeles', 'Chicago', 'Houston', 'Phoenix', 'Philadelphia', 'San Antonio',
+  'San Diego', 'Dallas', 'San Jose', 'Austin', 'Jacksonville', 'San Francisco', 'Seattle',
+  'Denver', 'Nashville', 'Portland', 'Las Vegas', 'Boston', 'Atlanta',
+  // Europe
+  'London', 'Paris', 'Berlin', 'Madrid', 'Rome', 'Amsterdam', 'Brussels', 'Vienna',
+  'Warsaw', 'Prague', 'Budapest', 'Bucharest', 'Stockholm', 'Oslo', 'Copenhagen',
+  'Helsinki', 'Zurich', 'Lisbon', 'Athens', 'Dublin', 'Munich', 'Barcelona', 'Milan',
+  // Asia
+  'Tokyo', 'Shanghai', 'Beijing', 'Seoul', 'Osaka', 'Chengdu', 'Guangzhou', 'Shenzhen',
+  'Bangkok', 'Jakarta', 'Manila', 'Kuala Lumpur', 'Singapore', 'Dhaka', 'Karachi',
+  'Lahore', 'Colombo', 'Kathmandu', 'Yangon', 'Ho Chi Minh City', 'Hanoi', 'Taipei',
+  'Hong Kong', 'Macau', 'Riyadh', 'Dubai', 'Abu Dhabi', 'Doha', 'Kuwait City',
+  'Tehran', 'Baghdad', 'Islamabad', 'Kabul', 'Tashkent', 'Almaty',
+  // Africa
+  'Cairo', 'Lagos', 'Kinshasa', 'Johannesburg', 'Nairobi', 'Dar es Salaam', 'Addis Ababa',
+  'Casablanca', 'Accra', 'Abidjan', 'Khartoum', 'Cape Town', 'Tunis', 'Algiers',
+  // Americas
+  'São Paulo', 'Mexico City', 'Buenos Aires', 'Rio de Janeiro', 'Lima', 'Bogotá',
+  'Santiago', 'Caracas', 'Quito', 'Montevideo', 'Toronto', 'Vancouver', 'Montreal',
+  // Oceania
+  'Sydney', 'Melbourne', 'Brisbane', 'Perth', 'Auckland', 'Wellington',
+];
+
 export default function SettingsScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -29,6 +59,8 @@ export default function SettingsScreen() {
   });
   const [cityMode, setCityMode] = useState<'location' | 'manual'>('manual');
   const [detectingLocation, setDetectingLocation] = useState(false);
+  const [citySearch, setCitySearch] = useState('');
+  const [showCityDropdown, setShowCityDropdown] = useState(false);
   const [permStatus, setPermStatus] = useState({
     location: 'unknown',
     notifications: 'unknown',
@@ -263,14 +295,52 @@ export default function SettingsScreen() {
                 )}
               </View>
             ) : (
-              <TextInput
-                testID="default-city-input"
-                style={styles.cityInput}
-                value={settings.default_city}
-                onChangeText={v => setSettings({ ...settings, default_city: v })}
-                placeholder="e.g. Mumbai, Delhi, Pune..."
-                placeholderTextColor="rgba(255,255,255,0.3)"
-              />
+              <View>
+                <View style={styles.citySearchRow}>
+                  <Ionicons name="search-outline" size={16} color="rgba(255,255,255,0.35)" style={{ marginLeft: 14 }} />
+                  <TextInput
+                    testID="default-city-input"
+                    style={styles.citySearchInput}
+                    value={citySearch || settings.default_city}
+                    onChangeText={v => {
+                      setCitySearch(v);
+                      setSettings(s => ({ ...s, default_city: v }));
+                      setShowCityDropdown(v.length > 0);
+                    }}
+                    onFocus={() => { setCitySearch(''); setShowCityDropdown(true); }}
+                    onBlur={() => setTimeout(() => setShowCityDropdown(false), 150)}
+                    placeholder="Search city..."
+                    placeholderTextColor="rgba(255,255,255,0.3)"
+                  />
+                  {settings.default_city ? (
+                    <TouchableOpacity onPress={() => { setSettings(s => ({ ...s, default_city: '' })); setCitySearch(''); }} style={{ paddingRight: 12 }}>
+                      <Ionicons name="close-circle" size={18} color="rgba(255,255,255,0.25)" />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+                {showCityDropdown && (() => {
+                  const q = citySearch.toLowerCase();
+                  const filtered = WORLD_CITIES.filter(c => c.toLowerCase().includes(q)).slice(0, 8);
+                  return filtered.length > 0 ? (
+                    <View style={styles.cityDropdown}>
+                      {filtered.map((c, i) => (
+                        <TouchableOpacity
+                          key={c}
+                          style={[styles.cityDropdownItem, i < filtered.length - 1 && styles.cityDropdownDivider]}
+                          onPress={() => {
+                            setSettings(s => ({ ...s, default_city: c }));
+                            setCitySearch('');
+                            setShowCityDropdown(false);
+                          }}
+                        >
+                          <Ionicons name="location-outline" size={14} color="rgba(74,222,128,0.6)" />
+                          <Text style={styles.cityDropdownText}>{c}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  ) : null;
+                })()}
+              </View>
             )}
           </GlassCard>
 
@@ -368,6 +438,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, color: '#FFF', fontSize: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
     marginTop: 4,
   },
+  citySearchRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4,
+    backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 12,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', height: 48,
+  },
+  citySearchInput: { flex: 1, color: '#FFF', fontSize: 15, height: '100%', paddingRight: 8 },
+  cityDropdown: {
+    backgroundColor: '#1A1A2E', borderRadius: 12, borderWidth: 1,
+    borderColor: 'rgba(74,222,128,0.2)', marginTop: 4, overflow: 'hidden',
+  },
+  cityDropdownItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 16, paddingVertical: 13,
+  },
+  cityDropdownDivider: { borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
+  cityDropdownText: { fontSize: 14, color: 'rgba(255,255,255,0.85)', fontWeight: '500' },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
   switchLabel: { flex: 1, fontSize: 14, color: 'rgba(255,255,255,0.7)' },
   permRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
