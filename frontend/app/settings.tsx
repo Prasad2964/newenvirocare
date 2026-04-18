@@ -25,8 +25,10 @@ export default function SettingsScreen() {
     notify_high_risk: true,
     notify_travel: true,
     notify_routine: true,
-    default_city: 'Mumbai',
+    default_city: '',
   });
+  const [cityMode, setCityMode] = useState<'location' | 'manual'>('manual');
+  const [detectingLocation, setDetectingLocation] = useState(false);
   const [permStatus, setPermStatus] = useState({
     location: 'unknown',
     notifications: 'unknown',
@@ -64,6 +66,35 @@ export default function SettingsScreen() {
   }, []);
 
   useEffect(() => { fetchSettings(); checkPermissions(); }, [fetchSettings, checkPermissions]);
+
+  async function detectCityFromLocation() {
+    setDetectingLocation(true);
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Location access is needed to detect your city.', [
+          { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          { text: 'Cancel' },
+        ]);
+        setCityMode('manual');
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const [place] = await Location.reverseGeocodeAsync({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+      const city = place?.city || place?.subregion || place?.region || '';
+      if (city) {
+        setSettings(s => ({ ...s, default_city: city }));
+      } else {
+        Alert.alert('Could not detect city', 'Try entering your city manually.');
+        setCityMode('manual');
+      }
+    } catch (e: any) {
+      Alert.alert('Location Error', e.message || 'Could not get location.');
+      setCityMode('manual');
+    } finally {
+      setDetectingLocation(false);
+    }
+  }
 
   async function saveSettings() {
     setSaving(true);
@@ -187,14 +218,60 @@ export default function SettingsScreen() {
           {/* Default City */}
           <Text style={styles.sectionTitle}>Default City</Text>
           <GlassCard>
-            <TextInput
-              testID="default-city-input"
-              style={styles.cityInput}
-              value={settings.default_city}
-              onChangeText={v => setSettings({ ...settings, default_city: v })}
-              placeholder="Enter your city"
-              placeholderTextColor="rgba(255,255,255,0.3)"
-            />
+            {/* Mode toggle */}
+            <View style={styles.cityModeRow}>
+              <TouchableOpacity
+                testID="city-mode-location-btn"
+                style={[styles.cityModeBtn, cityMode === 'location' && styles.cityModeBtnActive]}
+                onPress={() => { setCityMode('location'); detectCityFromLocation(); }}
+              >
+                <Ionicons name="locate" size={16} color={cityMode === 'location' ? '#4ADE80' : 'rgba(255,255,255,0.4)'} />
+                <Text style={[styles.cityModeBtnText, cityMode === 'location' && styles.cityModeBtnTextActive]}>Use My Location</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                testID="city-mode-manual-btn"
+                style={[styles.cityModeBtn, cityMode === 'manual' && styles.cityModeBtnActive]}
+                onPress={() => setCityMode('manual')}
+              >
+                <Ionicons name="create-outline" size={16} color={cityMode === 'manual' ? '#4ADE80' : 'rgba(255,255,255,0.4)'} />
+                <Text style={[styles.cityModeBtnText, cityMode === 'manual' && styles.cityModeBtnTextActive]}>Enter Manually</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.thresholdDivider} />
+
+            {cityMode === 'location' ? (
+              <View style={styles.cityDetectRow}>
+                {detectingLocation ? (
+                  <>
+                    <ActivityIndicator size="small" color="#4ADE80" />
+                    <Text style={styles.cityDetectText}>Detecting your location...</Text>
+                  </>
+                ) : settings.default_city ? (
+                  <>
+                    <Ionicons name="location" size={18} color="#4ADE80" />
+                    <Text style={styles.cityDetectedValue}>{settings.default_city}</Text>
+                    <TouchableOpacity onPress={detectCityFromLocation} style={styles.redetectBtn}>
+                      <Text style={styles.redetectText}>Re-detect</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="location-outline" size={18} color="rgba(255,255,255,0.3)" />
+                    <Text style={styles.cityDetectText}>Tap "Use My Location" to detect</Text>
+                  </>
+                )}
+              </View>
+            ) : (
+              <TextInput
+                testID="default-city-input"
+                style={styles.cityInput}
+                value={settings.default_city}
+                onChangeText={v => setSettings({ ...settings, default_city: v })}
+                placeholder="e.g. Mumbai, Delhi, Pune..."
+                placeholderTextColor="rgba(255,255,255,0.3)"
+              />
+            )}
           </GlassCard>
 
           {/* Notification Preferences */}
@@ -269,9 +346,27 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
   },
   thresholdDivider: { height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginVertical: 6 },
+  cityModeRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  cityModeBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingVertical: 10, borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+  },
+  cityModeBtnActive: { backgroundColor: 'rgba(74,222,128,0.1)', borderColor: 'rgba(74,222,128,0.3)' },
+  cityModeBtnText: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.4)' },
+  cityModeBtnTextActive: { color: '#4ADE80' },
+  cityDetectRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
+  cityDetectText: { fontSize: 14, color: 'rgba(255,255,255,0.4)', fontStyle: 'italic' },
+  cityDetectedValue: { flex: 1, fontSize: 16, fontWeight: '700', color: '#FFF' },
+  redetectBtn: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10,
+    backgroundColor: 'rgba(74,222,128,0.1)', borderWidth: 1, borderColor: 'rgba(74,222,128,0.25)',
+  },
+  redetectText: { fontSize: 12, fontWeight: '600', color: '#4ADE80' },
   cityInput: {
     height: 48, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)',
     paddingHorizontal: 16, color: '#FFF', fontSize: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+    marginTop: 4,
   },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
   switchLabel: { flex: 1, fontSize: 14, color: 'rgba(255,255,255,0.7)' },
