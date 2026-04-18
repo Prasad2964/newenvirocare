@@ -18,6 +18,22 @@ const COMMON_CONDITIONS = [
   'Lung Disease', 'Bronchitis', 'Allergies', 'Pregnancy',
 ];
 
+const DISEASE_SUGGESTIONS = [
+  'Eczema', 'Psoriasis', 'Rhinitis', 'Sinusitis', 'Sleep Apnea',
+  'Anxiety', 'Depression', 'Migraine', 'Arthritis', 'Osteoporosis',
+  'Thyroid Disorder', 'Obesity', 'Anemia', 'Kidney Disease', 'Liver Disease',
+  'Epilepsy', 'Multiple Sclerosis', 'Parkinson\'s Disease', 'Stroke', 'Atrial Fibrillation',
+  'Chronic Fatigue Syndrome', 'Fibromyalgia', 'Lupus', 'Celiac Disease', 'Crohn\'s Disease',
+  'Ulcerative Colitis', 'Irritable Bowel Syndrome', 'Gastroesophageal Reflux', 'Peptic Ulcer',
+  'Polycystic Ovary Syndrome', 'Endometriosis', 'Menopause', 'Gout', 'Sickle Cell Disease',
+  'Thalassemia', 'Hemophilia', 'Deep Vein Thrombosis', 'Pulmonary Embolism', 'Peripheral Artery Disease',
+  'Cardiomyopathy', 'Heart Failure', 'Angina', 'Pericarditis', 'Myocarditis',
+  'Glaucoma', 'Cataracts', 'Macular Degeneration', 'Diabetic Retinopathy', 'Hearing Loss',
+  'Tinnitus', 'Vertigo', 'Chronic Sinusitis', 'Nasal Polyps', 'Vocal Cord Dysfunction',
+  'Interstitial Lung Disease', 'Pulmonary Fibrosis', 'Sarcoidosis', 'Pleural Effusion',
+  'Pneumonia', 'Tuberculosis', 'Hyperlipidemia', 'Metabolic Syndrome',
+];
+
 function getSeverityColor(n: number) {
   if (n <= 3) return '#4ADE80';
   if (n <= 6) return '#FBBF24';
@@ -49,6 +65,7 @@ export default function ProfileScreen() {
   const [ocrApplied, setOcrApplied] = useState(false);
   const [severity, setSeverity] = useState(5);
   const [customConditionInput, setCustomConditionInput] = useState('');
+  const [showConditionDropdown, setShowConditionDropdown] = useState(false);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [photoLoading, setPhotoLoading] = useState(false);
   const [insights, setInsights] = useState<any[]>([]);
@@ -515,8 +532,10 @@ export default function ProfileScreen() {
                 <TextInput
                   style={[styles.formInput, { flex: 1, marginBottom: 0 }]}
                   value={customConditionInput}
-                  onChangeText={setCustomConditionInput}
-                  placeholder="Add custom condition..."
+                  onChangeText={(t) => { setCustomConditionInput(t); setShowConditionDropdown(t.length > 0); }}
+                  onFocus={() => setShowConditionDropdown(customConditionInput.length > 0)}
+                  onBlur={() => setTimeout(() => setShowConditionDropdown(false), 150)}
+                  placeholder="Search or type a condition..."
                   placeholderTextColor="rgba(255,255,255,0.3)"
                   onSubmitEditing={addCustomCondition}
                 />
@@ -524,6 +543,26 @@ export default function ProfileScreen() {
                   <Ionicons name="add" size={20} color="#4ADE80" />
                 </TouchableOpacity>
               </View>
+              {showConditionDropdown && (() => {
+                const query = customConditionInput.toLowerCase();
+                const filtered = [...COMMON_CONDITIONS, ...DISEASE_SUGGESTIONS]
+                  .filter(d => d.toLowerCase().includes(query) && !conditions.includes(d))
+                  .slice(0, 6);
+                return filtered.length > 0 ? (
+                  <View style={styles.dropdown}>
+                    {filtered.map((d, i) => (
+                      <TouchableOpacity
+                        key={d}
+                        style={[styles.dropdownItem, i < filtered.length - 1 && styles.dropdownDivider]}
+                        onPress={() => { setConditions(prev => [...prev, d]); setCustomConditionInput(''); setShowConditionDropdown(false); setEditing(true); }}
+                      >
+                        <Ionicons name="add-circle-outline" size={16} color="rgba(74,222,128,0.6)" />
+                        <Text style={styles.dropdownText}>{d}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : null;
+              })()}
 
               <Text style={styles.fieldLabel}>Age</Text>
               <TextInput
@@ -824,6 +863,16 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 13, color: 'rgba(255,255,255,0.5)' },
   chipTextActive: { fontSize: 13, color: '#4ADE80', fontWeight: '600' },
   customConditionRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  dropdown: {
+    backgroundColor: '#1A1A2E', borderRadius: 12, borderWidth: 1,
+    borderColor: 'rgba(74,222,128,0.2)', marginTop: 4, overflow: 'hidden',
+  },
+  dropdownItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 16, paddingVertical: 12,
+  },
+  dropdownDivider: { borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
+  dropdownText: { fontSize: 14, color: 'rgba(255,255,255,0.85)', fontWeight: '500' },
   formInput: {
     backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 12, borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 16, height: 48,
