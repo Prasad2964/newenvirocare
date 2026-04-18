@@ -100,6 +100,16 @@ CREATE TABLE IF NOT EXISTS exposures (
 );
 CREATE INDEX IF NOT EXISTS idx_exposures_user_id ON exposures(user_id);
 
+-- Chat usage (rate limiting)
+CREATE TABLE IF NOT EXISTS chat_usage (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    message_count INTEGER DEFAULT 0,
+    date        DATE DEFAULT CURRENT_DATE,
+    UNIQUE(user_id, date)
+);
+CREATE INDEX IF NOT EXISTS idx_chat_usage_user_date ON chat_usage(user_id, date);
+
 -- Disable RLS for all tables (API uses custom JWT, not Supabase Auth)
 ALTER TABLE users             DISABLE ROW LEVEL SECURITY;
 ALTER TABLE health_profiles   DISABLE ROW LEVEL SECURITY;

@@ -640,6 +640,90 @@ async def ai_adjust_routines(req: RoutineAdjustRequest, user=Depends(get_current
 
     return {"adjustments": adjustments, "aqi": aqi_data, "ai_summary": ai_summary}
 
+# ===================== CHAT ENDPOINTS =====================
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatRequest(BaseModel):
+    message: str
+    history: List[ChatMessage] = []
+    aqi: Optional[int] = None
+    city: Optional[str] = None
+
+CHAT_DAILY_LIMIT = 3
+
+@api_router.get("/chat/usage")
+async def get_chat_usage(user=Depends(get_current_user)):
+    today = datetime.now(timezone.utc).date().isoformat()
+    result = supabase.table("chat_usage").select("*").eq("user_id", user["user_id"]).eq("date", today).execute()
+    data = getattr(result, 'data', None) or []
+    used = data[0]["message_count"] if data else 0
+    return {"messages_used": used, "messages_limit": CHAT_DAILY_LIMIT, "messages_remaining": max(0, CHAT_DAILY_LIMIT - used)}
+
+@api_router.post("/chat")
+async def chat(req: ChatRequest, user=Depends(get_current_user)):
+    today = datetime.now(timezone.utc).date().isoformat()
+    usage_result = supabase.table("chat_usage").select("*").eq("user_id", user["user_id"]).eq("date", today).execute()
+    usage_data = getattr(usage_result, 'data', None) or []
+    used = usage_data[0]["message_count"] if usage_data else 0
+
+    if used >= CHAT_DAILY_LIMIT:
+        raise HTTPException(status_code=429, detail=f"Daily limit of {CHAT_DAILY_LIMIT} messages reached. Upgrade to Premium for unlimited chats.")
+
+    profile_result = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).execute()
+    profile = ((getattr(profile_result, 'data', None) or [None])[0]) or {}
+    symptoms_result = supabase.table("symptoms").select("*").eq("user_id", user["user_id"]).order("logged_at", desc=True).limit(3).execute()
+    recent_symptoms = getattr(symptoms_result, 'data', None) or []
+
+    conditions = profile.get("conditions", [])
+    medications = profile.get("medications", [])
+    allergies = profile.get("allergies", [])
+    symptom_text = "; ".join([", ".join(s.get("symptoms", [])) for s in recent_symptoms]) if recent_symptoms else "None recently"
+    aqi_info = f"AQI {req.aqi}" if req.aqi else "AQI unknown"
+
+    system_prompt = f"""You are EnviroCare AI, a personal health assistant specializing in air quality and its effects on health.
+
+User Profile:
+- Medical Conditions: {', '.join(conditions) if conditions else 'None'}
+- Medications: {', '.join(medications) if medications else 'None'}
+- Allergies: {', '.join(allergies) if allergies else 'None'}
+- Recent Symptoms: {symptom_text}
+- Current AQI: {aqi_info} in {req.city or 'their city'}
+
+Guidelines:
+- Be concise (2-4 sentences), actionable, empathetic
+- Always tailor advice to their specific conditions
+- Never diagnose — suggest consulting a doctor for medical concerns
+- Focus on air quality, breathing safety, and outdoor activity guidance"""
+
+    try:
+        import google.generativeai as genai
+        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("EMERGENT_LLM_KEY", "")
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.0-flash", system_instruction=system_prompt)
+
+        history = []
+        for msg in req.history[-6:]:
+            history.append({"role": "user" if msg.role == "user" else "model", "parts": [msg.content]})
+
+        chat_session = model.start_chat(history=history)
+        response = chat_session.send_message(req.message, request_options={"timeout": 15})
+        reply = response.text
+
+        if usage_data:
+            supabase.table("chat_usage").update({"message_count": used + 1}).eq("user_id", user["user_id"]).eq("date", today).execute()
+        else:
+            supabase.table("chat_usage").insert({"id": str(uuid4()), "user_id": user["user_id"], "message_count": 1, "date": today}).execute()
+
+        return {"reply": reply, "messages_used": used + 1, "messages_limit": CHAT_DAILY_LIMIT, "messages_remaining": max(0, CHAT_DAILY_LIMIT - used - 1)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Chat error for user {user['user_id']}: {e}")
+        raise HTTPException(status_code=500, detail="AI assistant temporarily unavailable. Please try again.")
+
 # ===================== SYMPTOM ENDPOINTS =====================
 
 @api_router.post("/symptoms")
