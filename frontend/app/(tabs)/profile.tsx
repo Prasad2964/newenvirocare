@@ -18,6 +18,12 @@ const COMMON_CONDITIONS = [
   'Lung Disease', 'Bronchitis', 'Allergies', 'Pregnancy',
 ];
 
+function getSeverityColor(n: number) {
+  if (n <= 3) return '#4ADE80';
+  if (n <= 6) return '#FBBF24';
+  return '#F87171';
+}
+
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
   const router = useRouter();
@@ -41,6 +47,12 @@ export default function ProfileScreen() {
   const [originalProfile, setOriginalProfile] = useState<any>(null);
   const [loggedSymptoms, setLoggedSymptoms] = useState<any[]>([]);
   const [ocrApplied, setOcrApplied] = useState(false);
+  const [severity, setSeverity] = useState(5);
+  const [customConditionInput, setCustomConditionInput] = useState('');
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [photoLoading, setPhotoLoading] = useState(false);
+  const [insights, setInsights] = useState<any[]>([]);
+  const [insightsMessage, setInsightsMessage] = useState('');
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -59,6 +71,7 @@ export default function ProfileScreen() {
       setAllergies(snap.allergies);
       setAge(snap.age);
       setBloodGroup(snap.bloodGroup);
+      if (data.photo_url) setPhotoUrl(data.photo_url);
     } catch (e) {
       console.log('Fetch profile error:', e);
     } finally {
@@ -75,13 +88,81 @@ export default function ProfileScreen() {
     }
   }, []);
 
+  const fetchInsights = useCallback(async () => {
+    try {
+      const data = await api.get('/api/symptoms/insights');
+      if (data.has_data) {
+        setInsights(data.insights || []);
+        setInsightsMessage('');
+      } else {
+        setInsights([]);
+        setInsightsMessage(data.message || '');
+      }
+    } catch (e) {
+      console.log('Fetch insights error:', e);
+    }
+  }, []);
+
   useEffect(() => {
     fetchProfile();
     fetchSymptoms();
-  }, [fetchProfile, fetchSymptoms]);
+    fetchInsights();
+  }, [fetchProfile, fetchSymptoms, fetchInsights]);
+
+  function getCompleteness() {
+    let score = 0;
+    if (conditions.length > 0) score += 20;
+    if (age) score += 20;
+    if (bloodGroup) score += 20;
+    if (medications) score += 20;
+    if (allergies) score += 20;
+    return score;
+  }
+
+  function getMissingFields() {
+    const missing: string[] = [];
+    if (conditions.length === 0) missing.push('conditions');
+    if (!age) missing.push('age');
+    if (!bloodGroup) missing.push('blood group');
+    if (!medications) missing.push('medications');
+    if (!allergies) missing.push('allergies');
+    return missing;
+  }
 
   function toggleCondition(c: string) {
     setConditions(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]);
+  }
+
+  function addCustomCondition() {
+    const trimmed = customConditionInput.trim();
+    if (!trimmed || conditions.includes(trimmed)) return;
+    setConditions(prev => [...prev, trimmed]);
+    setCustomConditionInput('');
+    setEditing(true);
+  }
+
+  async function handlePhotoUpload() {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.6,
+        base64: true,
+      });
+      if (!result.canceled && result.assets[0]?.base64) {
+        setPhotoLoading(true);
+        const data = await api.post('/api/profile/photo', {
+          image_base64: result.assets[0].base64,
+          mime_type: 'image/jpeg',
+        });
+        setPhotoUrl(data.photo_url);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Could not upload photo');
+    } finally {
+      setPhotoLoading(false);
+    }
   }
 
   async function saveProfile() {
@@ -119,7 +200,6 @@ export default function ProfileScreen() {
     setDeleting(true);
     try {
       await api.delete('/api/health-profile');
-      console.log('[Profile] Health profile deleted');
       setProfile(null);
       setOriginalProfile(null);
       setConditions([]); setMedications(''); setAllergies('');
@@ -127,7 +207,6 @@ export default function ProfileScreen() {
       setEditing(false);
       setShowDeleteConfirm(false);
     } catch (e: any) {
-      console.error('[Profile] Delete failed:', e.message);
       Alert.alert('Error', e.message || 'Failed to delete. Please try again.');
     } finally {
       setDeleting(false);
@@ -141,16 +220,15 @@ export default function ProfileScreen() {
     }
     setSymptomSaving(true);
     try {
-      console.log('[Symptoms] Logging:', symptoms);
-      await api.post('/api/symptoms', { symptoms, severity: 5 });
-      console.log('[Symptoms] Logged successfully');
+      await api.post('/api/symptoms', { symptoms, severity });
       Alert.alert('Logged', 'Symptoms recorded successfully');
       setSymptoms([]);
       setSymptomInput('');
+      setSeverity(5);
       setLogSymptomMode(false);
       fetchSymptoms();
+      fetchInsights();
     } catch (e: any) {
-      console.error('[Symptoms] Log failed:', e.message);
       Alert.alert('Error', e.message || 'Failed to log symptoms. Please try again.');
     } finally {
       setSymptomSaving(false);
@@ -250,19 +328,51 @@ export default function ProfileScreen() {
     );
   }
 
+  const completeness = getCompleteness();
+  const missingFields = getMissingFields();
+
   return (
     <View testID="profile-screen" style={styles.container}>
       <LinearGradient colors={['#0A1520', '#000']} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={styles.flex} edges={['top']}>
         <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+
             {/* User Card */}
             <GlassCard testID="user-card" style={styles.userCard}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{user?.name?.[0]?.toUpperCase() || 'U'}</Text>
-              </View>
+              <TouchableOpacity onPress={handlePhotoUpload} disabled={photoLoading} style={styles.avatarWrapper}>
+                {photoLoading ? (
+                  <View style={styles.avatar}><ActivityIndicator size="small" color="#4ADE80" /></View>
+                ) : photoUrl ? (
+                  <Image source={{ uri: photoUrl }} style={styles.avatarPhoto} />
+                ) : (
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>{user?.name?.[0]?.toUpperCase() || 'U'}</Text>
+                  </View>
+                )}
+                <View style={styles.avatarEditBadge}>
+                  <Ionicons name="camera" size={12} color="#000" />
+                </View>
+              </TouchableOpacity>
               <Text style={styles.userName}>{user?.name || 'User'}</Text>
               <Text style={styles.userEmail}>{user?.email}</Text>
+            </GlassCard>
+
+            {/* Health Completeness Card */}
+            <GlassCard style={styles.completenessCard}>
+              <View style={styles.completenessHeader}>
+                <Text style={styles.completenessTitle}>Profile Completeness</Text>
+                <Text style={[styles.completenessPercent, { color: completeness === 100 ? '#4ADE80' : '#FBBF24' }]}>{completeness}%</Text>
+              </View>
+              <View style={styles.completenessBar}>
+                <View style={[styles.completenessFill, {
+                  width: `${completeness}%` as any,
+                  backgroundColor: completeness === 100 ? '#4ADE80' : '#FBBF24',
+                }]} />
+              </View>
+              {missingFields.length > 0 && (
+                <Text style={styles.completenessHint}>Add your {missingFields.slice(0, 2).join(' & ')} to complete your profile</Text>
+              )}
             </GlassCard>
 
             {/* OCR Upload Section */}
@@ -295,7 +405,6 @@ export default function ProfileScreen() {
                     <Ionicons name="close-circle" size={22} color="rgba(255,255,255,0.3)" />
                   </TouchableOpacity>
                 </View>
-
                 {ocrResult.conditions.length > 0 && (
                   <>
                     <Text style={styles.fieldLabel}>Conditions Found</Text>
@@ -308,34 +417,29 @@ export default function ProfileScreen() {
                     </View>
                   </>
                 )}
-
                 {ocrResult.medications.length > 0 && (
                   <>
                     <Text style={styles.fieldLabel}>Medications Found</Text>
                     <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14 }}>{ocrResult.medications.join(', ')}</Text>
                   </>
                 )}
-
                 {ocrResult.allergies.length > 0 && (
                   <>
                     <Text style={styles.fieldLabel}>Allergies Found</Text>
                     <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14 }}>{ocrResult.allergies.join(', ')}</Text>
                   </>
                 )}
-
                 {ocrResult.notes ? (
                   <>
                     <Text style={styles.fieldLabel}>Notes</Text>
                     <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>{ocrResult.notes}</Text>
                   </>
                 ) : null}
-
                 {ocrResult.conditions.length === 0 && ocrResult.medications.length === 0 && (
                   <Text style={{ color: 'rgba(255,255,255,0.4)', textAlign: 'center', paddingVertical: 8 }}>
                     No medical data could be extracted. Try a clearer image.
                   </Text>
                 )}
-
                 <TouchableOpacity
                   style={[styles.saveBtn, { marginTop: 16 }]}
                   onPress={() => {
@@ -395,6 +499,30 @@ export default function ProfileScreen() {
                     <Text style={[styles.chipText, conditions.includes(c) && styles.chipTextActive]}>{c}</Text>
                   </TouchableOpacity>
                 ))}
+                {conditions.filter(c => !COMMON_CONDITIONS.includes(c)).map(c => (
+                  <TouchableOpacity
+                    key={c}
+                    style={[styles.chip, styles.chipActive]}
+                    onPress={() => { toggleCondition(c); setEditing(true); }}
+                  >
+                    <Text style={styles.chipTextActive}>{c}</Text>
+                    <Ionicons name="close" size={12} color="#4ADE80" />
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.customConditionRow}>
+                <TextInput
+                  style={[styles.formInput, { flex: 1, marginBottom: 0 }]}
+                  value={customConditionInput}
+                  onChangeText={setCustomConditionInput}
+                  placeholder="Add custom condition..."
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  onSubmitEditing={addCustomCondition}
+                />
+                <TouchableOpacity style={styles.addSymBtn} onPress={addCustomCondition}>
+                  <Ionicons name="add" size={20} color="#4ADE80" />
+                </TouchableOpacity>
               </View>
 
               <Text style={styles.fieldLabel}>Age</Text>
@@ -488,8 +616,28 @@ export default function ProfileScreen() {
                     </View>
                   ))}
                 </View>
+
+                <Text style={[styles.fieldLabel, { marginTop: 16 }]}>Severity</Text>
+                <View style={styles.severityRow}>
+                  {[1,2,3,4,5,6,7,8,9,10].map(n => (
+                    <TouchableOpacity
+                      key={n}
+                      onPress={() => setSeverity(n)}
+                      style={[
+                        styles.severityBtn,
+                        severity === n && { borderColor: getSeverityColor(n), backgroundColor: getSeverityColor(n) + '22' },
+                      ]}
+                    >
+                      <Text style={[styles.severityBtnText, severity === n && { color: getSeverityColor(n), fontWeight: '700' }]}>{n}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <Text style={styles.severityLabel}>
+                  {severity <= 3 ? 'Mild' : severity <= 6 ? 'Moderate' : 'Severe'}
+                </Text>
+
                 <View style={styles.formActions}>
-                  <TouchableOpacity style={styles.cancelBtn} onPress={() => { setLogSymptomMode(false); setSymptoms([]); setSymptomInput(''); }}>
+                  <TouchableOpacity style={styles.cancelBtn} onPress={() => { setLogSymptomMode(false); setSymptoms([]); setSymptomInput(''); setSeverity(5); }}>
                     <Text style={styles.cancelText}>Cancel</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -521,12 +669,9 @@ export default function ProfileScreen() {
                 </View>
                 {loggedSymptoms.slice(0, 10).map((entry, i) => {
                   const date = entry.logged_at ? new Date(entry.logged_at) : null;
-                  const dateStr = date
-                    ? date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-                    : '';
-                  const timeStr = date
-                    ? date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-                    : '';
+                  const dateStr = date ? date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+                  const timeStr = date ? date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '';
+                  const sev = entry.severity ?? 5;
                   return (
                     <GlassCard key={entry.symptom_id || i} style={styles.symptomHistoryCard}>
                       <View style={styles.symptomHistoryHeader}>
@@ -535,8 +680,8 @@ export default function ProfileScreen() {
                           <Text style={styles.symptomHistoryDate}>{dateStr}</Text>
                           <Text style={styles.symptomHistoryTime}>{timeStr}</Text>
                         </View>
-                        <View style={styles.severityBadge}>
-                          <Text style={styles.severityText}>Sev {entry.severity ?? 5}/10</Text>
+                        <View style={[styles.severityBadge, { backgroundColor: getSeverityColor(sev) + '22', borderColor: getSeverityColor(sev) + '55' }]}>
+                          <Text style={[styles.severityText, { color: getSeverityColor(sev) }]}>Sev {sev}/10</Text>
                         </View>
                       </View>
                       <View style={[styles.chipGrid, { marginTop: 8 }]}>
@@ -546,16 +691,41 @@ export default function ProfileScreen() {
                           </View>
                         ))}
                       </View>
-                      {entry.notes ? (
-                        <Text style={styles.symptomNotes}>{entry.notes}</Text>
-                      ) : null}
+                      {entry.notes ? <Text style={styles.symptomNotes}>{entry.notes}</Text> : null}
                     </GlassCard>
                   );
                 })}
               </>
             )}
 
-            {/* Actions */}
+            {/* Symptom Insights */}
+            {(insights.length > 0 || insightsMessage) && (
+              <>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Symptom Insights</Text>
+                </View>
+                {insightsMessage ? (
+                  <GlassCard style={{ alignItems: 'center', paddingVertical: 20 }}>
+                    <Ionicons name="analytics-outline" size={28} color="rgba(255,255,255,0.2)" />
+                    <Text style={{ color: 'rgba(255,255,255,0.4)', marginTop: 8, fontSize: 14, textAlign: 'center' }}>{insightsMessage}</Text>
+                  </GlassCard>
+                ) : insights.map((ins, i) => (
+                  <GlassCard key={i} style={styles.insightCard}>
+                    <View style={styles.insightHeader}>
+                      <Ionicons name="analytics" size={16} color="#A78BFA" />
+                      <Text style={styles.insightSymptom}>{ins.symptom}</Text>
+                      <View style={styles.insightBadge}>
+                        <Text style={styles.insightBadgeText}>{ins.occurrences}x</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.insightText}>{ins.insight}</Text>
+                    <Text style={styles.insightAqi}>Avg AQI when reported: {ins.avg_aqi_when_reported}</Text>
+                  </GlassCard>
+                ))}
+              </>
+            )}
+
+            {/* Account */}
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Account</Text>
             </View>
@@ -572,11 +742,7 @@ export default function ProfileScreen() {
                     Delete all health data? This cannot be undone.
                   </Text>
                   <View style={{ flexDirection: 'row', gap: 10 }}>
-                    <TouchableOpacity
-                      style={[styles.cancelBtn, { flex: 1 }]}
-                      onPress={() => setShowDeleteConfirm(false)}
-                      disabled={deleting}
-                    >
+                    <TouchableOpacity style={[styles.cancelBtn, { flex: 1 }]} onPress={() => setShowDeleteConfirm(false)} disabled={deleting}>
                       <Text style={styles.cancelText}>Cancel</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
@@ -585,10 +751,7 @@ export default function ProfileScreen() {
                       onPress={confirmDeleteProfile}
                       disabled={deleting}
                     >
-                      {deleting
-                        ? <ActivityIndicator size="small" color="#fff" />
-                        : <Text style={[styles.saveBtnText, { color: '#fff' }]}>Yes, Delete</Text>
-                      }
+                      {deleting ? <ActivityIndicator size="small" color="#fff" /> : <Text style={[styles.saveBtnText, { color: '#fff' }]}>Yes, Delete</Text>}
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -623,14 +786,29 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   loadingContainer: { flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
   scroll: { padding: 20, paddingBottom: 40 },
-  userCard: { alignItems: 'center', marginBottom: 24, paddingVertical: 28 },
+  userCard: { alignItems: 'center', marginBottom: 16, paddingVertical: 28 },
+  avatarWrapper: { position: 'relative', marginBottom: 12 },
   avatar: {
     width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(74,222,128,0.2)',
-    alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  avatarPhoto: { width: 72, height: 72, borderRadius: 36 },
+  avatarEditBadge: {
+    position: 'absolute', bottom: 0, right: 0,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: '#4ADE80', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: '#000',
   },
   avatarText: { fontSize: 28, fontWeight: '800', color: '#4ADE80' },
   userName: { fontSize: 22, fontWeight: '700', color: '#FFF' },
   userEmail: { fontSize: 14, color: 'rgba(255,255,255,0.5)', marginTop: 4 },
+  completenessCard: { marginBottom: 20 },
+  completenessHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  completenessTitle: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.7)' },
+  completenessPercent: { fontSize: 16, fontWeight: '800' },
+  completenessBar: { height: 6, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 3, overflow: 'hidden' },
+  completenessFill: { height: 6, borderRadius: 3 },
+  completenessHint: { fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 8 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, marginTop: 8 },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#FFF' },
   editLink: { fontSize: 14, fontWeight: '600', color: '#4ADE80' },
@@ -645,6 +823,7 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: 'rgba(74,222,128,0.12)', borderColor: 'rgba(74,222,128,0.3)' },
   chipText: { fontSize: 13, color: 'rgba(255,255,255,0.5)' },
   chipTextActive: { fontSize: 13, color: '#4ADE80', fontWeight: '600' },
+  customConditionRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
   formInput: {
     backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 12, borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 16, height: 48,
@@ -660,6 +839,13 @@ const styles = StyleSheet.create({
   noProfileSub: { fontSize: 13, color: 'rgba(255,255,255,0.2)', textAlign: 'center' },
   symptomInputRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   addSymBtn: { width: 48, height: 48, borderRadius: 12, backgroundColor: 'rgba(74,222,128,0.1)', alignItems: 'center', justifyContent: 'center' },
+  severityRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  severityBtn: {
+    width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+  },
+  severityBtnText: { fontSize: 13, color: 'rgba(255,255,255,0.5)' },
+  severityLabel: { fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 6 },
   logBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     paddingVertical: 16, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(6,182,212,0.3)',
@@ -698,4 +884,14 @@ const styles = StyleSheet.create({
   },
   symptomTagText: { fontSize: 13, color: '#A78BFA', fontWeight: '500' },
   symptomNotes: { fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 8, fontStyle: 'italic' },
+  insightCard: { marginBottom: 10 },
+  insightHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  insightSymptom: { fontSize: 15, fontWeight: '700', color: '#FFF', flex: 1 },
+  insightBadge: {
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12,
+    backgroundColor: 'rgba(167,139,250,0.15)', borderWidth: 1, borderColor: 'rgba(167,139,250,0.3)',
+  },
+  insightBadgeText: { fontSize: 12, color: '#A78BFA', fontWeight: '600' },
+  insightText: { fontSize: 14, color: 'rgba(255,255,255,0.7)', lineHeight: 20 },
+  insightAqi: { fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 6 },
 });

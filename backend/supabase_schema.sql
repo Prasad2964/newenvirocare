@@ -19,8 +19,12 @@ CREATE TABLE IF NOT EXISTS health_profiles (
     blood_group TEXT,
     allergies   TEXT[] DEFAULT '{}',
     notes       TEXT,
+    photo_url   TEXT,
     updated_at  TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- If updating an existing database, run:
+-- ALTER TABLE health_profiles ADD COLUMN IF NOT EXISTS photo_url TEXT;
 
 -- Routines (many per user)
 CREATE TABLE IF NOT EXISTS routines (

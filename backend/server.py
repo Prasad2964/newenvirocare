@@ -66,6 +66,10 @@ class SymptomRequest(BaseModel):
     severity: int = 5
     notes: Optional[str] = None
 
+class PhotoRequest(BaseModel):
+    image_base64: str
+    mime_type: str = "image/jpeg"
+
 class TravelRequest(BaseModel):
     origin: str
     destination: str
@@ -505,6 +509,31 @@ async def get_health_profile(user=Depends(get_current_user)):
     result = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).execute()
     data = (getattr(result, 'data', None) or [])
     return data[0] if data else {"conditions": [], "medications": [], "allergies": [], "notes": None}
+
+@api_router.post("/profile/photo")
+async def upload_profile_photo(req: PhotoRequest, user=Depends(get_current_user)):
+    try:
+        import base64 as b64
+        image_data = b64.b64decode(req.image_base64)
+        bucket_name = "profile-photos"
+        file_path = f"{user['user_id']}/avatar.jpg"
+        try:
+            supabase.storage.create_bucket(bucket_name, options={"public": True})
+        except Exception:
+            pass
+        supabase.storage.from_(bucket_name).upload(
+            file_path, image_data,
+            file_options={"content-type": req.mime_type, "upsert": "true"}
+        )
+        url = supabase.storage.from_(bucket_name).get_public_url(file_path)
+        supabase.table("health_profiles").upsert(
+            {"user_id": user["user_id"], "photo_url": url, "updated_at": datetime.now(timezone.utc).isoformat()},
+            on_conflict="user_id"
+        ).execute()
+        return {"photo_url": url}
+    except Exception as e:
+        logger.error(f"Photo upload error: {e}")
+        raise HTTPException(status_code=500, detail=f"Photo upload failed: {str(e)}")
 
 @api_router.delete("/health-profile")
 async def delete_health_profile(user=Depends(get_current_user)):
