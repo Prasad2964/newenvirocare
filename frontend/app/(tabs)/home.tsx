@@ -74,7 +74,8 @@ export default function HomeScreen() {
     try {
       setError(false);
       const settings = await api.get('/api/settings').catch(() => null);
-      const detectedCity = await detectUserCity(settings?.default_city || 'Mumbai');
+      const savedCity = settings?.default_city?.trim();
+      const detectedCity = savedCity ? savedCity : await detectUserCity('Mumbai');
       setCity(detectedCity);
 
       const [aqi, risk, profile] = await Promise.all([
