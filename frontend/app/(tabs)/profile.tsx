@@ -34,6 +34,28 @@ const DISEASE_SUGGESTIONS = [
   'Pneumonia', 'Tuberculosis', 'Hyperlipidemia', 'Metabolic Syndrome',
 ];
 
+const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+
+const COMMON_MEDICATIONS = [
+  'Inhaler', 'Ventolin', 'Seretide', 'Symbicort', 'Montelukast',
+  'Cetirizine', 'Fexofenadine', 'Loratadine', 'Paracetamol', 'Ibuprofen',
+  'Aspirin', 'Metformin', 'Insulin', 'Atorvastatin', 'Amlodipine',
+  'Lisinopril', 'Metoprolol', 'Omeprazole', 'Pantoprazole', 'Ranitidine',
+  'Amoxicillin', 'Azithromycin', 'Ciprofloxacin', 'Doxycycline', 'Prednisolone',
+  'Dexamethasone', 'Levothyroxine', 'Methotrexate', 'Hydroxychloroquine',
+  'Warfarin', 'Clopidogrel', 'Salbutamol', 'Budesonide', 'Fluticasone',
+  'Tiotropium', 'Ipratropium', 'Theophylline', 'Aminophylline',
+];
+
+const COMMON_ALLERGENS = [
+  'Pollen', 'Dust Mites', 'Pet Dander', 'Mold', 'Cockroaches',
+  'Peanuts', 'Tree Nuts', 'Shellfish', 'Fish', 'Milk',
+  'Eggs', 'Wheat', 'Soy', 'Latex', 'Penicillin',
+  'Aspirin', 'Ibuprofen', 'Sulfa Drugs', 'Insect Stings', 'Grass Pollen',
+  'Tree Pollen', 'Ragweed', 'Cat Hair', 'Dog Hair', 'Mold Spores',
+  'Nickel', 'Fragrance', 'Chlorine', 'Formaldehyde', 'Gluten',
+];
+
 function getSeverityColor(n: number) {
   if (n <= 3) return '#4ADE80';
   if (n <= 6) return '#FBBF24';
@@ -48,8 +70,8 @@ export default function ProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
   const [conditions, setConditions] = useState<string[]>([]);
-  const [medications, setMedications] = useState('');
-  const [allergies, setAllergies] = useState('');
+  const [medications, setMedications] = useState<string[]>([]);
+  const [allergies, setAllergies] = useState<string[]>([]);
   const [age, setAge] = useState('');
   const [bloodGroup, setBloodGroup] = useState('');
   const [symptoms, setSymptoms] = useState<string[]>([]);
@@ -66,6 +88,10 @@ export default function ProfileScreen() {
   const [severity, setSeverity] = useState(5);
   const [customConditionInput, setCustomConditionInput] = useState('');
   const [showConditionDropdown, setShowConditionDropdown] = useState(false);
+  const [medicationInput, setMedicationInput] = useState('');
+  const [showMedicationDropdown, setShowMedicationDropdown] = useState(false);
+  const [allergyInput, setAllergyInput] = useState('');
+  const [showAllergyDropdown, setShowAllergyDropdown] = useState(false);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [photoLoading, setPhotoLoading] = useState(false);
   const [insights, setInsights] = useState<any[]>([]);
@@ -77,8 +103,8 @@ export default function ProfileScreen() {
       setProfile(data);
       const snap = {
         conditions: data.conditions || [],
-        medications: data.medications?.length ? data.medications.join(', ') : '',
-        allergies: data.allergies?.length ? data.allergies.join(', ') : '',
+        medications: data.medications || [],
+        allergies: data.allergies || [],
         age: data.age ? String(data.age) : '',
         bloodGroup: data.blood_group || '',
       };
@@ -131,8 +157,8 @@ export default function ProfileScreen() {
     if (conditions.length > 0) score += 20;
     if (age) score += 20;
     if (bloodGroup) score += 20;
-    if (medications) score += 20;
-    if (allergies) score += 20;
+    if (medications.length > 0) score += 20;
+    if (allergies.length > 0) score += 20;
     return score;
   }
 
@@ -141,8 +167,8 @@ export default function ProfileScreen() {
     if (conditions.length === 0) missing.push('conditions');
     if (!age) missing.push('age');
     if (!bloodGroup) missing.push('blood group');
-    if (!medications) missing.push('medications');
-    if (!allergies) missing.push('allergies');
+    if (medications.length === 0) missing.push('medications');
+    if (allergies.length === 0) missing.push('allergies');
     return missing;
   }
 
@@ -155,6 +181,34 @@ export default function ProfileScreen() {
     if (!trimmed || conditions.includes(trimmed)) return;
     setConditions(prev => [...prev, trimmed]);
     setCustomConditionInput('');
+    setEditing(true);
+  }
+
+  function addMedication(med?: string) {
+    const trimmed = (med ?? medicationInput).trim();
+    if (!trimmed || medications.includes(trimmed)) return;
+    setMedications(prev => [...prev, trimmed]);
+    setMedicationInput('');
+    setShowMedicationDropdown(false);
+    setEditing(true);
+  }
+
+  function removeMedication(med: string) {
+    setMedications(prev => prev.filter(m => m !== med));
+    setEditing(true);
+  }
+
+  function addAllergy(al?: string) {
+    const trimmed = (al ?? allergyInput).trim();
+    if (!trimmed || allergies.includes(trimmed)) return;
+    setAllergies(prev => [...prev, trimmed]);
+    setAllergyInput('');
+    setShowAllergyDropdown(false);
+    setEditing(true);
+  }
+
+  function removeAllergy(al: string) {
+    setAllergies(prev => prev.filter(a => a !== al));
     setEditing(true);
   }
 
@@ -187,8 +241,8 @@ export default function ProfileScreen() {
     try {
       await api.post('/api/health-profile', {
         conditions,
-        medications: medications.split(',').map(m => m.trim()).filter(Boolean),
-        allergies: allergies.split(',').map(a => a.trim()).filter(Boolean),
+        medications,
+        allergies,
         age: age ? parseInt(age) : null,
         blood_group: bloodGroup || null,
       });
@@ -219,7 +273,7 @@ export default function ProfileScreen() {
       await api.delete('/api/health-profile');
       setProfile(null);
       setOriginalProfile(null);
-      setConditions([]); setMedications(''); setAllergies('');
+      setConditions([]); setMedications([]); setAllergies([]);
       setAge(''); setBloodGroup('');
       setEditing(false);
       setShowDeleteConfirm(false);
@@ -461,12 +515,8 @@ export default function ProfileScreen() {
                   style={[styles.saveBtn, { marginTop: 16 }]}
                   onPress={() => {
                     const mergedConditions = [...new Set([...conditions, ...ocrResult.conditions])];
-                    const mergedMeds = medications
-                      ? medications + (ocrResult.medications.length ? ', ' + ocrResult.medications.join(', ') : '')
-                      : ocrResult.medications.join(', ');
-                    const mergedAllergies = allergies
-                      ? allergies + (ocrResult.allergies.length ? ', ' + ocrResult.allergies.join(', ') : '')
-                      : ocrResult.allergies.join(', ');
+                    const mergedMeds = [...new Set([...medications, ...ocrResult.medications])];
+                    const mergedAllergies = [...new Set([...allergies, ...ocrResult.allergies])];
                     setConditions(mergedConditions);
                     setMedications(mergedMeds);
                     setAllergies(mergedAllergies);
@@ -575,37 +625,122 @@ export default function ProfileScreen() {
                 placeholderTextColor="rgba(255,255,255,0.3)"
               />
 
+              {/* Blood Group — chip selector */}
               <Text style={styles.fieldLabel}>Blood Group</Text>
-              <TextInput
-                testID="blood-group-input"
-                style={styles.formInput}
-                value={bloodGroup}
-                onChangeText={(t) => { setBloodGroup(t); setEditing(true); }}
-                placeholder="e.g. O+"
-                placeholderTextColor="rgba(255,255,255,0.3)"
-              />
+              <View style={styles.bloodGroupRow}>
+                {BLOOD_GROUPS.map(bg => (
+                  <TouchableOpacity
+                    key={bg}
+                    testID={`blood-group-${bg}`}
+                    style={[styles.bloodGroupChip, bloodGroup === bg && styles.bloodGroupChipActive]}
+                    onPress={() => { setBloodGroup(bloodGroup === bg ? '' : bg); setEditing(true); }}
+                  >
+                    <Text style={[styles.bloodGroupText, bloodGroup === bg && styles.bloodGroupTextActive]}>{bg}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
 
-              <Text style={styles.fieldLabel}>Medications (comma separated)</Text>
-              <TextInput
-                testID="medications-input"
-                style={[styles.formInput, { height: 56 }]}
-                value={medications}
-                onChangeText={(t) => { setMedications(t); setEditing(true); }}
-                placeholder="e.g. Inhaler, Aspirin"
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                multiline
-              />
+              {/* Medications — chip + searchable dropdown */}
+              <Text style={styles.fieldLabel}>Medications</Text>
+              {medications.length > 0 && (
+                <View style={[styles.chipGrid, { marginBottom: 8 }]}>
+                  {medications.map((m, i) => (
+                    <View key={i} style={[styles.chip, styles.chipActive]}>
+                      <Text style={styles.chipTextActive}>{m}</Text>
+                      <TouchableOpacity onPress={() => removeMedication(m)}>
+                        <Ionicons name="close" size={12} color="#4ADE80" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+              <View style={styles.customConditionRow}>
+                <TextInput
+                  testID="medications-input"
+                  style={[styles.formInput, { flex: 1, marginBottom: 0 }]}
+                  value={medicationInput}
+                  onChangeText={(t) => { setMedicationInput(t); setShowMedicationDropdown(t.length > 0); }}
+                  onFocus={() => setShowMedicationDropdown(medicationInput.length > 0)}
+                  onBlur={() => setTimeout(() => setShowMedicationDropdown(false), 150)}
+                  placeholder="Search or type a medication..."
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  onSubmitEditing={() => addMedication()}
+                />
+                <TouchableOpacity style={styles.addSymBtn} onPress={() => addMedication()}>
+                  <Ionicons name="add" size={20} color="#4ADE80" />
+                </TouchableOpacity>
+              </View>
+              {showMedicationDropdown && (() => {
+                const query = medicationInput.toLowerCase();
+                const filtered = COMMON_MEDICATIONS
+                  .filter(m => m.toLowerCase().includes(query) && !medications.includes(m))
+                  .slice(0, 6);
+                return filtered.length > 0 ? (
+                  <View style={styles.dropdown}>
+                    {filtered.map((m, i) => (
+                      <TouchableOpacity
+                        key={m}
+                        style={[styles.dropdownItem, i < filtered.length - 1 && styles.dropdownDivider]}
+                        onPress={() => addMedication(m)}
+                      >
+                        <Ionicons name="add-circle-outline" size={16} color="rgba(74,222,128,0.6)" />
+                        <Text style={styles.dropdownText}>{m}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : null;
+              })()}
 
-              <Text style={styles.fieldLabel}>Allergies (comma separated)</Text>
-              <TextInput
-                testID="allergies-input"
-                style={[styles.formInput, { height: 56 }]}
-                value={allergies}
-                onChangeText={(t) => { setAllergies(t); setEditing(true); }}
-                placeholder="e.g. Pollen, Dust"
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                multiline
-              />
+              {/* Allergies — chip + searchable dropdown */}
+              <Text style={styles.fieldLabel}>Allergies</Text>
+              {allergies.length > 0 && (
+                <View style={[styles.chipGrid, { marginBottom: 8 }]}>
+                  {allergies.map((a, i) => (
+                    <View key={i} style={[styles.chip, { backgroundColor: 'rgba(251,191,36,0.1)', borderColor: 'rgba(251,191,36,0.25)' }]}>
+                      <Text style={{ fontSize: 13, color: '#FBBF24', fontWeight: '600' }}>{a}</Text>
+                      <TouchableOpacity onPress={() => removeAllergy(a)}>
+                        <Ionicons name="close" size={12} color="#FBBF24" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+              <View style={styles.customConditionRow}>
+                <TextInput
+                  testID="allergies-input"
+                  style={[styles.formInput, { flex: 1, marginBottom: 0 }]}
+                  value={allergyInput}
+                  onChangeText={(t) => { setAllergyInput(t); setShowAllergyDropdown(t.length > 0); }}
+                  onFocus={() => setShowAllergyDropdown(allergyInput.length > 0)}
+                  onBlur={() => setTimeout(() => setShowAllergyDropdown(false), 150)}
+                  placeholder="Search or type an allergen..."
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  onSubmitEditing={() => addAllergy()}
+                />
+                <TouchableOpacity style={[styles.addSymBtn, { backgroundColor: 'rgba(251,191,36,0.1)' }]} onPress={() => addAllergy()}>
+                  <Ionicons name="add" size={20} color="#FBBF24" />
+                </TouchableOpacity>
+              </View>
+              {showAllergyDropdown && (() => {
+                const query = allergyInput.toLowerCase();
+                const filtered = COMMON_ALLERGENS
+                  .filter(a => a.toLowerCase().includes(query) && !allergies.includes(a))
+                  .slice(0, 6);
+                return filtered.length > 0 ? (
+                  <View style={[styles.dropdown, { borderColor: 'rgba(251,191,36,0.2)' }]}>
+                    {filtered.map((a, i) => (
+                      <TouchableOpacity
+                        key={a}
+                        style={[styles.dropdownItem, i < filtered.length - 1 && styles.dropdownDivider]}
+                        onPress={() => addAllergy(a)}
+                      >
+                        <Ionicons name="add-circle-outline" size={16} color="rgba(251,191,36,0.6)" />
+                        <Text style={styles.dropdownText}>{a}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : null;
+              })()}
 
               <TouchableOpacity
                 testID="save-profile-btn"
@@ -616,7 +751,7 @@ export default function ProfileScreen() {
                 {saving ? <ActivityIndicator size="small" color="#000" /> : <Text style={styles.saveBtnText}>Save Profile</Text>}
               </TouchableOpacity>
 
-              {conditions.length === 0 && !age && !bloodGroup && !medications && !allergies && (
+              {conditions.length === 0 && !age && !bloodGroup && medications.length === 0 && allergies.length === 0 && (
                 <View style={[styles.noProfile, { marginTop: 12 }]}>
                   <Ionicons name="heart-outline" size={28} color="rgba(255,255,255,0.15)" />
                   <Text style={styles.noProfileText}>No health data yet</Text>
@@ -878,6 +1013,15 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 16, height: 48,
     color: '#FFF', fontSize: 15, marginBottom: 8,
   },
+  bloodGroupRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  bloodGroupChip: {
+    paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+    minWidth: 52, alignItems: 'center',
+  },
+  bloodGroupChipActive: { backgroundColor: 'rgba(167,139,250,0.15)', borderColor: 'rgba(167,139,250,0.4)' },
+  bloodGroupText: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.5)' },
+  bloodGroupTextActive: { color: '#A78BFA' },
   formActions: { flexDirection: 'row', gap: 12, marginTop: 16 },
   cancelBtn: { flex: 1, alignItems: 'center', paddingVertical: 14, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.05)' },
   cancelText: { color: 'rgba(255,255,255,0.5)', fontWeight: '600' },
