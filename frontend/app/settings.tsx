@@ -101,26 +101,42 @@ export default function SettingsScreen() {
   async function detectCityFromLocation() {
     setDetectingLocation(true);
     try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Location access is needed to detect your city.', [
-          { text: 'Open Settings', onPress: () => Linking.openSettings() },
-          { text: 'Cancel' },
-        ]);
-        setCityMode('manual');
-        return;
-      }
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const [place] = await Location.reverseGeocodeAsync({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
-      const city = place?.city || place?.subregion || place?.region || '';
-      if (city) {
-        setSettings(s => ({ ...s, default_city: city }));
+      if (Platform.OS === 'web') {
+        // Use IP geolocation on web — reverseGeocodeAsync needs a Google key on web
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 6000);
+        const res = await fetch('https://ipapi.co/json/', { signal: controller.signal });
+        clearTimeout(timer);
+        const data = await res.json();
+        if (data.city) {
+          setSettings(s => ({ ...s, default_city: data.city }));
+        } else {
+          throw new Error('Could not detect city from IP');
+        }
       } else {
-        Alert.alert('Could not detect city', 'Try entering your city manually.');
-        setCityMode('manual');
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Denied', 'Location access is needed to detect your city.', [
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            { text: 'Cancel' },
+          ]);
+          setCityMode('manual');
+          return;
+        }
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const [place] = await Location.reverseGeocodeAsync({
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+        });
+        const city = place?.city || place?.subregion || place?.region || '';
+        if (city) {
+          setSettings(s => ({ ...s, default_city: city }));
+        } else {
+          throw new Error('Could not resolve city from coordinates');
+        }
       }
     } catch (e: any) {
-      Alert.alert('Location Error', e.message || 'Could not get location.');
+      Alert.alert('Location Error', e.message || 'Could not detect location. Try entering manually.');
       setCityMode('manual');
     } finally {
       setDetectingLocation(false);
@@ -131,10 +147,9 @@ export default function SettingsScreen() {
     setSaving(true);
     try {
       await api.post('/api/settings', settings);
-      Alert.alert('Saved', 'Settings updated successfully');
+      router.replace('/(tabs)/home');
     } catch (e: any) {
       Alert.alert('Error', e.message);
-    } finally {
       setSaving(false);
     }
   }
