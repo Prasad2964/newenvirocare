@@ -654,6 +654,20 @@ class ChatRequest(BaseModel):
 
 CHAT_DAILY_LIMIT = 3
 
+@api_router.get("/chat/debug-models")
+async def debug_models():
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        return {"error": "GEMINI_API_KEY not set"}
+    try:
+        resp = http_requests.get(
+            f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}",
+            timeout=10
+        )
+        return {"status": resp.status_code, "body": resp.json()}
+    except Exception as e:
+        return {"error": str(e)}
+
 @api_router.get("/chat/usage")
 async def get_chat_usage(user=Depends(get_current_user)):
     today = datetime.now(timezone.utc).date().isoformat()
