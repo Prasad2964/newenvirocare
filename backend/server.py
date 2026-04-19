@@ -743,7 +743,7 @@ Guidelines:
             contents.append({"role": "user", "parts": [{"text": req.message}]})
 
         reply = None
-        for model_name in ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro"]:
+        for model_name in ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.0-flash-lite"]:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
             payload = {
                 "system_instruction": {"parts": [{"text": system_prompt}]},
