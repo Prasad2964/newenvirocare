@@ -90,7 +90,7 @@ async function canSendAlert(): Promise<boolean> {
   try {
     const last = await AsyncStorage.getItem(LAST_ALERT_KEY);
     if (!last) return true;
-    return Date.now() - parseInt(last, 10) > 30 * 60 * 1000;
+    return Date.now() - parseInt(last, 10) > 1 * 60 * 1000;
   } catch {
     return true;
   }

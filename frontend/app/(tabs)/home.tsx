@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  RefreshControl, AppState,
+  RefreshControl, AppState, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,7 +11,7 @@ import * as Location from 'expo-location';
 import { useAuth } from '../../src/context/AuthContext';
 import api from '../../src/utils/api';
 import { getAqiTheme, getRiskColor } from '../../src/utils/theme';
-import { sendAqiAlert, getPersonalizedThreshold } from '../../src/services/notifications';
+import { sendAqiAlert, getPersonalizedThreshold, registerForPushNotifications, requestWebNotificationPermission } from '../../src/services/notifications';
 import { showToast } from '../../src/components/Toast';
 import BreathingOrb from '../../src/components/BreathingOrb';
 import GlassCard from '../../src/components/GlassCard';
@@ -101,8 +101,12 @@ export default function HomeScreen() {
       if (exp) setExposure(exp);
 
       const threshold = getPersonalizedThreshold(conditionsRef.current);
+      console.log(`[Notifications] AQI: ${aqi?.aqi}, threshold: ${threshold}, conditions: ${conditionsRef.current}`);
       if (aqi?.aqi >= threshold) {
-        sendAqiAlert(aqi.aqi, detectedCity, aqi.level, conditionsRef.current).catch(() => {});
+        console.log('[Notifications] Threshold exceeded — firing alert');
+        sendAqiAlert(aqi.aqi, detectedCity, aqi.level, conditionsRef.current).catch((e) => console.log('[Notifications] sendAqiAlert error:', e));
+      } else {
+        console.log('[Notifications] AQI below threshold — no alert');
       }
     } catch (e) {
       setError(true);
@@ -110,6 +114,14 @@ export default function HomeScreen() {
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      requestWebNotificationPermission();
+    } else {
+      registerForPushNotifications();
     }
   }, []);
 
