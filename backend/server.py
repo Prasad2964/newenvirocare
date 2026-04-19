@@ -712,34 +712,45 @@ Guidelines:
 - Focus on air quality, breathing safety, and outdoor activity guidance"""
 
     try:
-        import google.generativeai as genai
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("EMERGENT_LLM_KEY", "")
         if not api_key:
             logger.error("GEMINI_API_KEY is not set in environment variables")
             raise HTTPException(status_code=503, detail="AI service is not configured. Please contact support.")
-        genai.configure(api_key=api_key)
 
-        history = []
-        for msg in req.history[-6:]:
-            history.append({"role": "user" if msg.role == "user" else "model", "parts": [msg.content]})
+        # Build conversation contents for REST API
+        contents = [{"role": "user", "parts": [{"text": system_prompt + "\n\nUser: " + req.message}]}]
+        if req.history:
+            contents = []
+            for msg in req.history[-6:]:
+                contents.append({
+                    "role": "user" if msg.role == "user" else "model",
+                    "parts": [{"text": msg.content}]
+                })
+            contents.append({"role": "user", "parts": [{"text": req.message}]})
 
         reply = None
-        for model_name in ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]:
-            try:
-                model = genai.GenerativeModel(model_name, system_instruction=system_prompt)
-                chat_session = model.start_chat(history=history)
-                response = chat_session.send_message(req.message, request_options={"timeout": 30})
-                reply = response.text
-                break
-            except Exception as model_err:
-                err_str = str(model_err).lower()
-                if "resource_exhausted" in err_str or "resourceexhausted" in err_str or "429" in err_str:
-                    logger.warning(f"{model_name} quota exhausted, trying next model")
-                    continue
-                raise
+        for model_name in ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro"]:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+            payload = {
+                "system_instruction": {"parts": [{"text": system_prompt}]},
+                "contents": contents,
+                "generationConfig": {"maxOutputTokens": 512, "temperature": 0.7}
+            }
+            resp = http_requests.post(url, json=payload, timeout=30)
+            if resp.status_code == 404:
+                logger.warning(f"Model {model_name} not found, trying next")
+                continue
+            if resp.status_code == 429:
+                raise HTTPException(status_code=429, detail="AI quota exceeded. Please wait a minute and try again.")
+            if not resp.ok:
+                logger.error(f"Gemini API error {resp.status_code}: {resp.text}")
+                raise HTTPException(status_code=500, detail=f"AI error: {resp.status_code}")
+            data = resp.json()
+            reply = data["candidates"][0]["content"]["parts"][0]["text"]
+            break
 
         if not reply:
-            raise HTTPException(status_code=429, detail="AI quota exceeded. Please wait a minute and try again.")
+            raise HTTPException(status_code=503, detail="No AI models available. Please try again later.")
 
         # Fail-safe usage update
         try:
