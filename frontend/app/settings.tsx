@@ -59,7 +59,6 @@ export default function SettingsScreen() {
   });
   const [cityMode, setCityMode] = useState<'location' | 'manual'>('manual');
   const [detectingLocation, setDetectingLocation] = useState(false);
-  const [citySearch, setCitySearch] = useState('');
   const [showCityDropdown, setShowCityDropdown] = useState(false);
   const [permStatus, setPermStatus] = useState({
     location: 'unknown',
@@ -301,25 +300,24 @@ export default function SettingsScreen() {
                   <TextInput
                     testID="default-city-input"
                     style={styles.citySearchInput}
-                    value={citySearch || settings.default_city}
+                    value={settings.default_city}
                     onChangeText={v => {
-                      setCitySearch(v);
                       setSettings(s => ({ ...s, default_city: v }));
                       setShowCityDropdown(v.length > 0);
                     }}
-                    onFocus={() => { setCitySearch(''); setShowCityDropdown(true); }}
+                    onFocus={() => setShowCityDropdown(true)}
                     onBlur={() => setTimeout(() => setShowCityDropdown(false), 150)}
                     placeholder="Search city..."
                     placeholderTextColor="rgba(255,255,255,0.3)"
                   />
                   {settings.default_city ? (
-                    <TouchableOpacity onPress={() => { setSettings(s => ({ ...s, default_city: '' })); setCitySearch(''); }} style={{ paddingRight: 12 }}>
+                    <TouchableOpacity onPress={() => { setSettings(s => ({ ...s, default_city: '' })); setShowCityDropdown(false); }} style={{ paddingRight: 12 }}>
                       <Ionicons name="close-circle" size={18} color="rgba(255,255,255,0.25)" />
                     </TouchableOpacity>
                   ) : null}
                 </View>
                 {showCityDropdown && (() => {
-                  const q = citySearch.toLowerCase();
+                  const q = settings.default_city.toLowerCase();
                   const filtered = WORLD_CITIES.filter(c => c.toLowerCase().includes(q)).slice(0, 8);
                   return filtered.length > 0 ? (
                     <View style={styles.cityDropdown}>
@@ -329,7 +327,6 @@ export default function SettingsScreen() {
                           style={[styles.cityDropdownItem, i < filtered.length - 1 && styles.cityDropdownDivider]}
                           onPress={() => {
                             setSettings(s => ({ ...s, default_city: c }));
-                            setCitySearch('');
                             setShowCityDropdown(false);
                           }}
                         >
