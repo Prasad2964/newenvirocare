@@ -652,7 +652,7 @@ class ChatRequest(BaseModel):
     aqi: Optional[int] = None
     city: Optional[str] = None
 
-CHAT_DAILY_LIMIT = 3
+CHAT_DAILY_LIMIT = 20
 
 @api_router.get("/chat/debug-models")
 async def debug_models():
@@ -742,6 +742,7 @@ Guidelines:
                 })
             contents.append({"role": "user", "parts": [{"text": req.message}]})
 
+        import time
         reply = None
         for model_name in ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.0-flash-lite"]:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
@@ -750,21 +751,32 @@ Guidelines:
                 "contents": contents,
                 "generationConfig": {"maxOutputTokens": 512, "temperature": 0.7}
             }
-            resp = http_requests.post(url, json=payload, timeout=30)
+            # Retry once on rate limit
+            for attempt in range(2):
+                resp = http_requests.post(url, json=payload, timeout=30)
+                if resp.status_code == 429 and attempt == 0:
+                    logger.warning(f"{model_name} rate limited, retrying in 5s")
+                    time.sleep(5)
+                    continue
+                break
+
             if resp.status_code == 404:
                 logger.warning(f"Model {model_name} not found, trying next")
                 continue
             if resp.status_code == 429:
-                raise HTTPException(status_code=429, detail="AI quota exceeded. Please wait a minute and try again.")
+                logger.warning(f"{model_name} still rate limited after retry, trying next model")
+                continue
             if not resp.ok:
                 logger.error(f"Gemini API error {resp.status_code}: {resp.text}")
-                raise HTTPException(status_code=500, detail=f"AI error: {resp.status_code}")
+                continue
             data = resp.json()
-            reply = data["candidates"][0]["content"]["parts"][0]["text"]
-            break
+            candidates = data.get("candidates", [])
+            if candidates:
+                reply = candidates[0]["content"]["parts"][0]["text"]
+                break
 
         if not reply:
-            raise HTTPException(status_code=503, detail="No AI models available. Please try again later.")
+            raise HTTPException(status_code=429, detail="AI quota exceeded. Please wait a minute and try again.")
 
         # Fail-safe usage update
         try:

@@ -12,7 +12,7 @@ export interface Message {
 
 const STORAGE_KEY = 'envirocare_chat_history';
 const MAX_STORED = 20;
-const DAILY_LIMIT = 3;
+const DAILY_LIMIT = 20;
 
 export function useChat(aqi: number | null, city: string | null) {
   const [messages, setMessages] = useState<Message[]>([]);

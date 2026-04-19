@@ -152,7 +152,7 @@ export default function ChatScreen() {
   );
 }
 
-const DAILY_LIMIT = 3;
+const DAILY_LIMIT = 20;
 
 function EmptyState({ onSuggest }: { onSuggest: (t: string) => void }) {
   return (
