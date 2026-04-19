@@ -36,8 +36,10 @@ function GoogleButton({
   const redirectUri = AuthSession.makeRedirectUri();
   console.log('[Google OAuth] redirectUri:', redirectUri);
 
+  const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
   const [, response, promptAsync] = Google.useAuthRequest({
     webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID!,
+    iosClientId: iosClientId || undefined,
     redirectUri,
     scopes: ['openid', 'profile', 'email'],
   });
@@ -243,8 +245,8 @@ export default function LoginScreen() {
               <Text style={styles.title}>Welcome Back</Text>
               <Text style={styles.subtitle}>Sign in to monitor your environment</Text>
 
-              {/* Google Sign-In Button */}
-              {process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ? (
+              {/* Google Sign-In Button — hide on native iOS without iOS client ID */}
+              {process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID && (Platform.OS === 'web' || Platform.OS === 'android' || process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID) ? (
                 <GoogleButton
                   loading={googleLoading}
                   onStart={() => setGoogleLoading(true)}
