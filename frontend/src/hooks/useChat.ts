@@ -91,7 +91,7 @@ export function useChat(aqi: number | null, city: string | null) {
         role: 'assistant',
         content: isLimit
           ? 'Daily limit reached. Upgrade to Premium for unlimited chats.'
-          : 'Something went wrong. Please try again.',
+          : (e.message || 'Something went wrong. Please try again.'),
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         error: true,
       };
