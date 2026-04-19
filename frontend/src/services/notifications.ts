@@ -24,7 +24,7 @@ export async function requestWebNotificationPermission(): Promise<boolean> {
   return result === 'granted';
 }
 
-// ─── Native: register for push notifications ────────────────────────────────
+// ─── Native: request notification permission (local notifications only) ─────
 export async function registerForPushNotifications(): Promise<string | null> {
   if (Platform.OS === 'web') {
     await requestWebNotificationPermission();
@@ -32,14 +32,11 @@ export async function registerForPushNotifications(): Promise<string | null> {
   }
   if (!Device.isDevice) return null;
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  let finalStatus = existingStatus;
   if (existingStatus !== 'granted') {
     const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
+    if (status !== 'granted') return null;
   }
-  if (finalStatus !== 'granted') return null;
-  const token = await Notifications.getExpoPushTokenAsync();
-  return token.data;
+  return null;
 }
 
 // ─── Cross-platform local notification ───────────────────────────────────────
