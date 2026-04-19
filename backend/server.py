@@ -718,15 +718,28 @@ Guidelines:
             logger.error("GEMINI_API_KEY is not set in environment variables")
             raise HTTPException(status_code=503, detail="AI service is not configured. Please contact support.")
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash", system_instruction=system_prompt)
 
         history = []
         for msg in req.history[-6:]:
             history.append({"role": "user" if msg.role == "user" else "model", "parts": [msg.content]})
 
-        chat_session = model.start_chat(history=history)
-        response = chat_session.send_message(req.message, request_options={"timeout": 30})
-        reply = response.text
+        reply = None
+        for model_name in ["gemini-2.0-flash", "gemini-1.5-flash"]:
+            try:
+                model = genai.GenerativeModel(model_name, system_instruction=system_prompt)
+                chat_session = model.start_chat(history=history)
+                response = chat_session.send_message(req.message, request_options={"timeout": 30})
+                reply = response.text
+                break
+            except Exception as model_err:
+                err_str = str(model_err).lower()
+                if "resource_exhausted" in err_str or "resourceexhausted" in err_str or "429" in err_str:
+                    logger.warning(f"{model_name} quota exhausted, trying next model")
+                    continue
+                raise
+
+        if not reply:
+            raise HTTPException(status_code=429, detail="AI quota exceeded. Please wait a minute and try again.")
 
         # Fail-safe usage update
         try:

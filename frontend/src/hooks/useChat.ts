@@ -83,14 +83,16 @@ export function useChat(aqi: number | null, city: string | null) {
       setMessagesRemaining(data.messages_remaining);
       setLimitReached(data.messages_remaining === 0);
     } catch (e: any) {
-      const isLimit = e.message?.includes('limit') || e.message?.includes('429');
+      const isLimit = e.message?.includes('limit') || e.message?.includes('429') || e.message?.includes('quota');
       if (isLimit) { setLimitReached(true); setMessagesRemaining(0); }
 
       const errMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: isLimit
-          ? 'Daily limit reached. Upgrade to Premium for unlimited chats.'
+          ? (e.message?.includes('quota') || e.message?.includes('wait')
+              ? 'AI quota exceeded. Please wait a minute and try again.'
+              : 'Daily limit reached. Upgrade to Premium for unlimited chats.')
           : (e.message || 'Something went wrong. Please try again.'),
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         error: true,
