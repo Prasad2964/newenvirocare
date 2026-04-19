@@ -202,40 +202,94 @@ def generate_city_aqi(city: str) -> dict:
 
 # ===================== REAL AQI (WAQI with mock fallback) =====================
 
+def _primary_pollutant(iaqi: dict) -> str:
+    candidates = {
+        "PM2.5": iaqi.get('pm25', {}).get('v', 0),
+        "PM10":  iaqi.get('pm10', {}).get('v', 0),
+        "NO2":   iaqi.get('no2',  {}).get('v', 0),
+        "SO2":   iaqi.get('so2',  {}).get('v', 0),
+        "O3":    iaqi.get('o3',   {}).get('v', 0),
+        "CO":    iaqi.get('co',   {}).get('v', 0),
+    }
+    return max(candidates, key=candidates.get) if any(candidates.values()) else "PM2.5"
+
+def _weather_description(temp: float, humidity: float, wind: float) -> str:
+    if wind > 30: return "Windy"
+    if humidity > 85: return "Very Humid"
+    if humidity > 70 and temp > 28: return "Hot & Humid"
+    if humidity > 70: return "Humid"
+    if temp > 35: return "Very Hot"
+    if temp > 28: return "Warm"
+    if temp < 5: return "Cold"
+    if temp < 15: return "Cool"
+    if humidity < 30: return "Dry"
+    return "Clear"
+
+def _fetch_weather(lat: float, lon: float) -> dict:
+    try:
+        resp = http_requests.get(
+            f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+            f"&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code"
+            f"&wind_speed_unit=kmh&timezone=auto",
+            timeout=5
+        )
+        if resp.ok:
+            c = resp.json().get('current', {})
+            temp = c.get('temperature_2m', 25)
+            humidity = c.get('relative_humidity_2m', 50)
+            wind = c.get('wind_speed_10m', 10)
+            return {"temperature": temp, "humidity": humidity, "wind_speed": wind,
+                    "description": _weather_description(temp, humidity, wind)}
+    except Exception as e:
+        logger.warning(f"Open-Meteo failed: {e}")
+    return None
+
 async def fetch_city_aqi(city: str) -> dict:
     waqi_token = os.environ.get('WAQI_TOKEN', '')
     if waqi_token:
         try:
             response = http_requests.get(
                 f"https://api.waqi.info/feed/{city}/?token={waqi_token}",
-                timeout=5
+                timeout=8
             )
             data = response.json()
             if data.get('status') == 'ok':
                 d = data['data']
                 aqi = int(d.get('aqi', 0))
                 iaqi = d.get('iaqi', {})
+
+                # Try Open-Meteo for accurate weather using WAQI's lat/lon
+                geo = d.get('city', {}).get('geo', [])
+                weather = None
+                if len(geo) == 2:
+                    weather = _fetch_weather(geo[0], geo[1])
+
+                # Fallback to WAQI's own weather readings
+                if not weather:
+                    temp = iaqi.get('t', {}).get('v', 25)
+                    humidity = iaqi.get('h', {}).get('v', 50)
+                    wind = iaqi.get('w', {}).get('v', 10)
+                    weather = {"temperature": temp, "humidity": humidity, "wind_speed": wind,
+                               "description": _weather_description(temp, humidity, wind)}
+
+                pollutants = {
+                    "pm25": round(iaqi.get('pm25', {}).get('v', 0), 1),
+                    "pm10": round(iaqi.get('pm10', {}).get('v', 0), 1),
+                    "no2":  round(iaqi.get('no2',  {}).get('v', 0), 1),
+                    "so2":  round(iaqi.get('so2',  {}).get('v', 0), 1),
+                    "co":   round(iaqi.get('co',   {}).get('v', 0), 2),
+                    "o3":   round(iaqi.get('o3',   {}).get('v', 0), 1),
+                }
+
                 return {
-                    "city": city.title(),
+                    "city": d.get('city', {}).get('name', city.title()),
                     "aqi": aqi,
                     "level": get_aqi_level(aqi),
-                    "primary_pollutant": "PM2.5",
-                    "pollutants": {
-                        "pm25": iaqi.get('pm25', {}).get('v', 0),
-                        "pm10": iaqi.get('pm10', {}).get('v', 0),
-                        "no2":  iaqi.get('no2',  {}).get('v', 0),
-                        "so2":  iaqi.get('so2',  {}).get('v', 0),
-                        "co":   iaqi.get('co',   {}).get('v', 0),
-                        "o3":   iaqi.get('o3',   {}).get('v', 0),
-                    },
-                    "weather": {
-                        "temperature": iaqi.get('t', {}).get('v', 25),
-                        "humidity":    iaqi.get('h', {}).get('v', 50),
-                        "wind_speed":  iaqi.get('w', {}).get('v', 10),
-                        "description": "Live data"
-                    },
+                    "primary_pollutant": _primary_pollutant(iaqi),
+                    "pollutants": pollutants,
+                    "weather": weather,
                     "mask": get_mask_recommendation(aqi),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": d.get('time', {}).get('iso', datetime.now(timezone.utc).isoformat()),
                     "is_emergency": aqi > 300,
                     "source": "live"
                 }
