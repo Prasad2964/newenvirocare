@@ -64,7 +64,7 @@ export default function ChatScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.title}>AI Assistant</Text>
-            <Text style={styles.subtitle}>Powered by Gemini 2.0</Text>
+            <Text style={styles.subtitle}>Powered by Gemini</Text>
           </View>
           <TouchableOpacity onPress={clearHistory} style={styles.clearBtn}>
             <Ionicons name="trash-outline" size={18} color="rgba(255,255,255,0.35)" />

@@ -724,7 +724,7 @@ Guidelines:
             history.append({"role": "user" if msg.role == "user" else "model", "parts": [msg.content]})
 
         reply = None
-        for model_name in ["gemini-2.0-flash", "gemini-1.5-flash"]:
+        for model_name in ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]:
             try:
                 model = genai.GenerativeModel(model_name, system_instruction=system_prompt)
                 chat_session = model.start_chat(history=history)
