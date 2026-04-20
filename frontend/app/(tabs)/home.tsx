@@ -65,7 +65,6 @@ export default function HomeScreen() {
   const [exposure, setExposure] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [city, setCity] = useState('Mumbai');
-  const [forecastData, setForecastData] = useState<any>(null);
   const [error, setError] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const appState = useRef(AppState.currentState);
@@ -79,15 +78,13 @@ export default function HomeScreen() {
       const detectedCity = savedCity ? savedCity : await detectUserCity('Mumbai');
       setCity(detectedCity);
 
-      const [aqi, risk, profile, forecast] = await Promise.all([
+      const [aqi, risk, profile] = await Promise.all([
         api.get(`/api/aqi/${detectedCity}`),
         api.post('/api/risk-assessment', { city: detectedCity }).catch(() => null),
         api.get('/api/health-profile').catch(() => null),
-        api.get(`/api/aqi/forecast/${detectedCity}`).catch(() => null),
       ]);
       setAqiData(aqi);
       if (risk) setRiskData(risk);
-      if (forecast) setForecastData(forecast);
       if (profile?.conditions) conditionsRef.current = profile.conditions;
 
       api.post('/api/activity', {
@@ -258,37 +255,6 @@ export default function HomeScreen() {
               </View>
             </View>
           </GlassCard>
-
-          {/* 24h AQI Forecast */}
-          {forecastData?.forecast_24h && (
-            <GlassCard testID="forecast-card">
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>24h AQI Forecast</Text>
-                <View style={[styles.primaryBadge, { backgroundColor: tokenTheme.primary + '20' }]}>
-                  <Text style={[styles.primaryBadgeText, { color: tokenTheme.primary }]}>
-                    {forecastData.trend === 'improving' ? '↓ Improving' : forecastData.trend === 'worsening' ? '↑ Worsening' : '→ Stable'}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.forecastRow}>
-                {(forecastData.forecast_24h as number[]).filter((_,i) => i % 3 === 0).map((val, i) => {
-                  const hour = (new Date().getHours() + i * 3) % 24;
-                  const barH = Math.max(8, Math.min(60, (val / 500) * 60));
-                  const barColor = val <= 50 ? '#4ade80' : val <= 100 ? '#facc15' : val <= 150 ? '#fb923c' : val <= 200 ? '#f87171' : '#c084fc';
-                  return (
-                    <View key={i} style={styles.forecastBarWrap}>
-                      <Text style={styles.forecastVal}>{Math.round(val)}</Text>
-                      <View style={[styles.forecastBar, { height: barH, backgroundColor: barColor }]} />
-                      <Text style={styles.forecastHr}>{hour}h</Text>
-                    </View>
-                  );
-                })}
-              </View>
-              <Text style={styles.forecastSub}>
-                Peak {Math.round(forecastData.peak_aqi)} in ~{forecastData.peak_in_hours}h · Avg next 6h: {forecastData.avg_next_6h}
-              </Text>
-            </GlassCard>
-          )}
 
           {/* Weather Card */}
           <GlassCard testID="weather-card">
@@ -528,10 +494,4 @@ const styles = StyleSheet.create({
   scoreBar: { height: 6, backgroundColor: COLORS.glass, borderRadius: 3, overflow: 'hidden' },
   scoreBarFill: { height: '100%', backgroundColor: COLORS.warning, borderRadius: 3 },
   scoreLabel: { fontSize: FONT_SIZE.xs + 1, fontFamily: FONTS.mono, color: COLORS.textMuted, marginTop: 8, textAlign: 'center' },
-  forecastRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: SPACING.md, height: 80 },
-  forecastBarWrap: { alignItems: 'center', flex: 1, justifyContent: 'flex-end', gap: 3 },
-  forecastBar: { width: 10, borderRadius: 4 },
-  forecastVal: { fontSize: 9, fontFamily: FONTS.mono, color: COLORS.textSecondary },
-  forecastHr: { fontSize: 9, fontFamily: FONTS.mono, color: COLORS.textMuted },
-  forecastSub: { fontSize: FONT_SIZE.xs, fontFamily: FONTS.body, color: COLORS.textMuted, textAlign: 'center' },
 });

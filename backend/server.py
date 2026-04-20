@@ -17,7 +17,6 @@ import bcrypt
 import base64 as b64lib
 import json
 import requests as http_requests
-from ml_models import predict_aqi_forecast, predict_risk_score
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -604,25 +603,12 @@ async def delete_health_profile(user=Depends(get_current_user)):
 
 @api_router.post("/risk-assessment")
 async def risk_assessment(req: RiskAssessmentRequest, user=Depends(get_current_user)):
-    aqi_data = await fetch_city_aqi(req.city)
+    aqi_data = generate_city_aqi(req.city)
     result = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).execute()
     profile = ((getattr(result, 'data', None) or []) or [None])[0] or {}
     conditions = profile.get("conditions", [])
-    age = profile.get("age")
 
-    try:
-        ml_risk = predict_risk_score(
-            aqi=aqi_data["aqi"],
-            conditions=conditions,
-            pollutants=aqi_data.get("pollutants", {}),
-            weather=aqi_data.get("weather", {}),
-            age=age,
-        )
-        risk = {**ml_risk, "base_risk": round(min(100, (aqi_data["aqi"] / 500) * 100), 1)}
-    except Exception as e:
-        logger.warning(f"ML risk scoring failed, using formula: {e}")
-        risk = calculate_risk_score(aqi_data["aqi"], conditions)
-
+    risk = calculate_risk_score(aqi_data["aqi"], conditions)
     advice = await get_ai_advice(aqi_data, profile, "risk assessment")
 
     return {
@@ -631,37 +617,6 @@ async def risk_assessment(req: RiskAssessmentRequest, user=Depends(get_current_u
         "advice": advice,
         "mask": aqi_data["mask"],
         "emergency": aqi_data["is_emergency"]
-    }
-
-@api_router.get("/aqi/forecast/{city}")
-async def aqi_forecast(city: str, user=Depends(get_current_user)):
-    aqi_data = await fetch_city_aqi(city)
-    current_aqi = aqi_data["aqi"]
-    pollutants = aqi_data.get("pollutants", {})
-    weather = aqi_data.get("weather", {})
-
-    import random as _rng
-    history = [max(5.0, current_aqi + _rng.uniform(-15, 15)) for _ in range(24)]
-    history[-1] = float(current_aqi)
-
-    try:
-        forecast = predict_aqi_forecast(history, pollutants, weather)
-    except Exception as e:
-        logger.warning(f"LSTM forecast failed: {e}")
-        forecast = {
-            "forecast_24h": [current_aqi] * 24,
-            "trend": "stable",
-            "peak_aqi": current_aqi,
-            "peak_in_hours": 1,
-            "avg_next_6h": float(current_aqi),
-        }
-
-    return {
-        "city": aqi_data.get("city", city.title()),
-        "current_aqi": current_aqi,
-        "level": aqi_data.get("level"),
-        **forecast,
-        "source": aqi_data.get("source", "mock"),
     }
 
 # ===================== ROUTINE ENDPOINTS =====================
