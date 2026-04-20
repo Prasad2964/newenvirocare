@@ -12,6 +12,14 @@ import * as Notifications from 'expo-notifications';
 import * as ImagePicker from 'expo-image-picker';
 import api from '../src/utils/api';
 import GlassCard from '../src/components/GlassCard';
+import { getPersonalizedThreshold } from '../src/services/notifications';
+
+const CONDITION_MULTIPLIERS: Record<string, number> = {
+  'asthma': 2.0, 'copd': 2.5, 'heart disease': 1.8,
+  'diabetes': 1.3, 'hypertension': 1.4, 'lung disease': 2.2,
+  'bronchitis': 1.9, 'allergies': 1.5, 'pregnancy': 1.6,
+  'kidney disease': 1.4, 'anxiety': 1.2, 'rhinitis': 1.3, 'sinusitis': 1.2,
+};
 
 const WORLD_CITIES = [
   // India
@@ -47,10 +55,8 @@ export default function SettingsScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [healthConditions, setHealthConditions] = useState<string[]>([]);
   const [settings, setSettings] = useState({
-    safe_aqi_threshold: 50,
-    risky_aqi_threshold: 150,
-    dangerous_aqi_threshold: 300,
     notify_daily_updates: true,
     notify_high_risk: true,
     notify_travel: true,
@@ -68,8 +74,12 @@ export default function SettingsScreen() {
 
   const fetchSettings = useCallback(async () => {
     try {
-      const data = await api.get('/api/settings');
+      const [data, profile] = await Promise.all([
+        api.get('/api/settings'),
+        api.get('/api/health-profile').catch(() => null),
+      ]);
       setSettings(s => ({ ...s, ...data }));
+      if (profile?.conditions) setHealthConditions(profile.conditions);
     } catch (e) {
       console.log('Settings fetch error:', e);
     } finally {
@@ -215,50 +225,54 @@ export default function SettingsScreen() {
           <Text style={styles.title}>Settings</Text>
           <Text style={styles.subtitle}>Customize your EnviroCare experience</Text>
 
-          {/* Risk Thresholds */}
+          {/* Risk Personalization */}
           <Text style={styles.sectionTitle}>Risk Personalization</Text>
           <GlassCard testID="risk-thresholds-card">
-            <View style={styles.thresholdRow}>
-              <View style={styles.thresholdInfo}>
-                <View style={[styles.thresholdDot, { backgroundColor: '#4ADE80' }]} />
-                <Text style={styles.thresholdLabel}>Safe AQI Threshold</Text>
+            {healthConditions.length === 0 ? (
+              <View style={styles.noConditionsRow}>
+                <Ionicons name="person-outline" size={20} color="rgba(255,255,255,0.4)" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.noConditionsText}>No health conditions saved</Text>
+                  <Text style={styles.noConditionsSub}>Add conditions in your Profile to get personalised risk scoring</Text>
+                </View>
               </View>
-              <TextInput
-                testID="safe-threshold-input"
-                style={styles.thresholdInput}
-                value={String(settings.safe_aqi_threshold)}
-                onChangeText={v => setSettings({ ...settings, safe_aqi_threshold: parseInt(v) || 0 })}
-                keyboardType="numeric"
-              />
-            </View>
+            ) : (
+              <>
+                {healthConditions.map((cond, i) => {
+                  const key = Object.keys(CONDITION_MULTIPLIERS).find(k => cond.toLowerCase().includes(k));
+                  const mult = key ? CONDITION_MULTIPLIERS[key] : null;
+                  return (
+                    <View key={cond}>
+                      <View style={styles.thresholdRow}>
+                        <View style={styles.thresholdInfo}>
+                          <Ionicons name="medkit-outline" size={16} color="#FB923C" />
+                          <Text style={styles.thresholdLabel}>{cond}</Text>
+                        </View>
+                        {mult && (
+                          <View style={styles.multBadge}>
+                            <Text style={styles.multText}>{mult}× risk</Text>
+                          </View>
+                        )}
+                      </View>
+                      {i < healthConditions.length - 1 && <View style={styles.thresholdDivider} />}
+                    </View>
+                  );
+                })}
+              </>
+            )}
             <View style={styles.thresholdDivider} />
-            <View style={styles.thresholdRow}>
-              <View style={styles.thresholdInfo}>
-                <View style={[styles.thresholdDot, { backgroundColor: '#FB923C' }]} />
-                <Text style={styles.thresholdLabel}>Risky AQI Threshold</Text>
+            <View style={styles.alertThresholdRow}>
+              <Ionicons name="notifications-outline" size={16} color="#4ADE80" />
+              <Text style={styles.alertThresholdLabel}>Alert threshold</Text>
+              <View style={styles.alertThresholdBadge}>
+                <Text style={styles.alertThresholdValue}>AQI {getPersonalizedThreshold(healthConditions)}+</Text>
               </View>
-              <TextInput
-                testID="risky-threshold-input"
-                style={styles.thresholdInput}
-                value={String(settings.risky_aqi_threshold)}
-                onChangeText={v => setSettings({ ...settings, risky_aqi_threshold: parseInt(v) || 0 })}
-                keyboardType="numeric"
-              />
             </View>
-            <View style={styles.thresholdDivider} />
-            <View style={styles.thresholdRow}>
-              <View style={styles.thresholdInfo}>
-                <View style={[styles.thresholdDot, { backgroundColor: '#DC2626' }]} />
-                <Text style={styles.thresholdLabel}>Dangerous AQI Threshold</Text>
-              </View>
-              <TextInput
-                testID="dangerous-threshold-input"
-                style={styles.thresholdInput}
-                value={String(settings.dangerous_aqi_threshold)}
-                onChangeText={v => setSettings({ ...settings, dangerous_aqi_threshold: parseInt(v) || 0 })}
-                keyboardType="numeric"
-              />
-            </View>
+            <Text style={styles.thresholdNote}>
+              {healthConditions.length > 0
+                ? 'Automatically adjusted based on your health conditions'
+                : 'Default threshold for healthy individuals'}
+            </Text>
           </GlassCard>
 
           {/* Default City */}
@@ -420,14 +434,18 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 16, fontWeight: '700', color: 'rgba(255,255,255,0.7)', marginBottom: 10, marginTop: 16, letterSpacing: 0.5 },
   thresholdRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 },
   thresholdInfo: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  thresholdDot: { width: 10, height: 10, borderRadius: 5 },
   thresholdLabel: { fontSize: 14, color: 'rgba(255,255,255,0.7)' },
-  thresholdInput: {
-    width: 64, height: 40, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.06)',
-    textAlign: 'center', color: '#FFF', fontSize: 16, fontWeight: '700',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
-  },
   thresholdDivider: { height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginVertical: 6 },
+  multBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: 'rgba(251,146,60,0.15)', borderWidth: 1, borderColor: 'rgba(251,146,60,0.25)' },
+  multText: { fontSize: 12, fontWeight: '700', color: '#FB923C' },
+  alertThresholdRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
+  alertThresholdLabel: { flex: 1, fontSize: 14, color: 'rgba(255,255,255,0.7)' },
+  alertThresholdBadge: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 10, backgroundColor: 'rgba(74,222,128,0.12)', borderWidth: 1, borderColor: 'rgba(74,222,128,0.3)' },
+  alertThresholdValue: { fontSize: 13, fontWeight: '700', color: '#4ADE80' },
+  thresholdNote: { fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 4, fontStyle: 'italic' },
+  noConditionsRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 4 },
+  noConditionsText: { fontSize: 14, color: 'rgba(255,255,255,0.6)', fontWeight: '600' },
+  noConditionsSub: { fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 3, lineHeight: 17 },
   cityModeRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   cityModeBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
