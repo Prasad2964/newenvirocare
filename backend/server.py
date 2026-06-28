@@ -268,9 +268,11 @@ async def fetch_city_aqi(city: str) -> dict:
                 if not weather:
                     temp = iaqi.get('t', {}).get('v', 25)
                     humidity = iaqi.get('h', {}).get('v', 50)
-                    wind = iaqi.get('w', {}).get('v', 10)
-                    weather = {"temperature": temp, "humidity": humidity, "wind_speed": wind,
-                               "description": _weather_description(temp, humidity, wind)}
+                    # WAQI reports wind in m/s — convert to km/h
+                    wind_ms = iaqi.get('w', {}).get('v', 2.8)
+                    wind_kmh = round(wind_ms * 3.6, 1)
+                    weather = {"temperature": temp, "humidity": humidity, "wind_speed": wind_kmh,
+                               "description": _weather_description(temp, humidity, wind_kmh)}
 
                 pollutants = {
                     "pm25": round(iaqi.get('pm25', {}).get('v', 0), 1),
@@ -281,8 +283,12 @@ async def fetch_city_aqi(city: str) -> dict:
                     "o3":   round(iaqi.get('o3',   {}).get('v', 0), 1),
                 }
 
+                # Use the user's input city name for display, not the station name
+                # (WAQI station names like "Kurla, Mumbai, India" are confusing)
+                display_name = city.title()
+
                 return {
-                    "city": d.get('city', {}).get('name', city.title()),
+                    "city": display_name,
                     "aqi": aqi,
                     "level": get_aqi_level(aqi),
                     "primary_pollutant": _primary_pollutant(iaqi),
