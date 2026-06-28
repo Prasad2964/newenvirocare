@@ -9,9 +9,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../src/context/AuthContext';
 import api from '../../src/utils/api';
 import GlassCard from '../../src/components/GlassCard';
+import { sendLocalNotification } from '../../src/services/notifications';
 
 const COMMON_CONDITIONS = [
   'Asthma', 'COPD', 'Heart Disease', 'Diabetes', 'Hypertension',
@@ -939,6 +941,29 @@ export default function ProfileScreen() {
               <TouchableOpacity testID="delete-account-btn" style={styles.actionRow} onPress={handleDeleteAccount}>
                 <Ionicons name="person-remove-outline" size={20} color="#F87171" />
                 <Text style={[styles.actionText, { color: '#F87171' }]}>Delete Account</Text>
+              </TouchableOpacity>
+              <View style={styles.actionDivider} />
+              <View style={styles.actionDivider} />
+              <TouchableOpacity
+                style={styles.actionRow}
+                onPress={async () => {
+                  // Clear all notification cooldowns so every alert can fire fresh.
+                  const keys = await AsyncStorage.getAllKeys();
+                  const cooldownKeys = keys.filter(k =>
+                    k.startsWith('predictive_last_') || k === 'last_aqi_alert_ts'
+                  );
+                  await AsyncStorage.multiRemove(cooldownKeys);
+                  // Fire a sample notification immediately so you can confirm it works.
+                  await sendLocalNotification(
+                    'Test — Notification System Active',
+                    'All cooldowns cleared. Notifications will fire on next AQI load.',
+                    { type: 'test' }
+                  );
+                  Alert.alert('Done', `Cleared ${cooldownKeys.length} cooldown(s). A test notification was just sent.`);
+                }}
+              >
+                <Ionicons name="notifications-outline" size={20} color="#FACC15" />
+                <Text style={[styles.actionText, { color: '#FACC15' }]}>Test Notifications</Text>
               </TouchableOpacity>
               <View style={styles.actionDivider} />
               <TouchableOpacity testID="logout-btn" style={styles.actionRow} onPress={handleLogout}>
