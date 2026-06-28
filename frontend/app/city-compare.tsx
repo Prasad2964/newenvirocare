@@ -12,19 +12,31 @@ import api from '../src/utils/api';
 import { getAqiTheme } from '../src/utils/theme';
 import GlassCard from '../src/components/GlassCard';
 
-// ── Indian cities list ────────────────────────────────────────────────────────
+// ── Indian cities + monitored sub-areas ──────────────────────────────────────
 const INDIAN_CITIES = [
   'Agra', 'Ahmedabad', 'Ajmer', 'Aligarh', 'Allahabad', 'Amravati', 'Amritsar',
-  'Asansol', 'Aurangabad', 'Bangalore', 'Bareilly', 'Belgaum', 'Bhavnagar',
-  'Bhilai', 'Bhiwandi', 'Bhopal', 'Bhubaneswar', 'Bikaner', 'Chandigarh',
-  'Chennai', 'Coimbatore', 'Cuttack', 'Davanagere', 'Dehradun', 'Delhi',
+  'Asansol', 'Aurangabad',
+  // Bangalore + monitored stations
+  'Bangalore', 'Bangalore - BTM Layout', 'Bangalore - Hebbal', 'Bangalore - Silk Board',
+  'Bareilly', 'Belgaum', 'Bhavnagar', 'Bhilai', 'Bhiwandi', 'Bhopal', 'Bhubaneswar',
+  'Bikaner', 'Chandigarh', 'Chennai', 'Coimbatore', 'Cuttack', 'Davanagere', 'Dehradun',
+  // Delhi + monitored stations
+  'Delhi', 'Delhi - Anand Vihar', 'Delhi - Dwarka', 'Delhi - Okhla',
+  'Delhi - Punjabi Bagh', 'Delhi - RK Puram', 'Delhi - Rohini',
   'Dhanbad', 'Durgapur', 'Erode', 'Faridabad', 'Gaya', 'Ghaziabad', 'Gorakhpur',
   'Gulbarga', 'Guntur', 'Gurgaon', 'Guwahati', 'Gwalior', 'Hubballi-Dharwad',
   'Hyderabad', 'Indore', 'Jabalpur', 'Jaipur', 'Jalandhar', 'Jalgaon',
   'Jamnagar', 'Jammu', 'Jamshedpur', 'Jhansi', 'Jodhpur', 'Kanpur', 'Kochi',
-  'Kolhapur', 'Kolkata', 'Kota', 'Kozhikode', 'Lucknow', 'Ludhiana',
-  'Madurai', 'Maheshtala', 'Malegaon', 'Mangalore', 'Meerut', 'Moradabad',
-  'Mumbai', 'Mysore', 'Nagpur', 'Nanded', 'Nashik', 'Nellore', 'Noida',
+  'Kolhapur', 'Kolkata', 'Kota', 'Kozhikode', 'Lucknow', 'Ludhiana', 'Madurai',
+  'Maheshtala', 'Malegaon', 'Mangalore', 'Meerut', 'Moradabad',
+  // Mumbai + all 16 CPCB monitoring stations
+  'Mumbai',
+  'Mumbai - Airport', 'Mumbai - Andheri', 'Mumbai - Bandra Kurla Complex',
+  'Mumbai - Bhandup', 'Mumbai - Borivali', 'Mumbai - Colaba', 'Mumbai - Deonar',
+  'Mumbai - Kurla', 'Mumbai - Malad', 'Mumbai - Mazgaon', 'Mumbai - Mulund',
+  'Mumbai - Navy Nagar Colaba', 'Mumbai - Powai', 'Mumbai - Siddharth Nagar Worli',
+  'Mumbai - Sion', 'Mumbai - Worli',
+  'Mysore', 'Nagpur', 'Nanded', 'Nashik', 'Nellore', 'Noida',
   'Patna', 'Pimpri-Chinchwad', 'Pune', 'Raipur', 'Rajkot', 'Ranchi',
   'Saharanpur', 'Salem', 'Sangli', 'Siliguri', 'Solapur', 'Srinagar',
   'Surat', 'Thane', 'Thiruvananthapuram', 'Tiruchirappalli', 'Tirunelveli',

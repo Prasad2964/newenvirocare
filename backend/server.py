@@ -112,6 +112,40 @@ async def get_current_user(authorization: str = Header(None)):
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+# ===================== WAQI STATION UID MAP =====================
+# Allows fetching specific monitoring stations by WAQI UID
+# so sub-city areas like "Mumbai - Bandra" can be looked up directly.
+WAQI_STATION_UIDS: dict[str, int] = {
+    # Mumbai stations (16 CPCB stations)
+    "mumbai - bandra kurla complex": 13715,
+    "mumbai - kurla":                12454,
+    "mumbai - worli":                11921,
+    "mumbai - siddharth nagar worli":13706,
+    "mumbai - andheri":              13713,
+    "mumbai - borivali":             12460,
+    "mumbai - powai":                12459,
+    "mumbai - sion":                 12464,
+    "mumbai - colaba":               11962,
+    "mumbai - navy nagar colaba":    13707,
+    "mumbai - malad":                13803,
+    "mumbai - mulund":               13708,
+    "mumbai - bhandup":              13710,
+    "mumbai - mazgaon":              13709,
+    "mumbai - deonar":               13712,
+    "mumbai - airport":              12456,
+    # Delhi stations
+    "delhi - anand vihar":           7022,
+    "delhi - punjabi bagh":          7017,
+    "delhi - rk puram":              7025,
+    "delhi - dwarka":                7020,
+    "delhi - rohini":                14826,
+    "delhi - okhla":                 7031,
+    # Bangalore stations
+    "bangalore - silk board":        14543,
+    "bangalore - btm layout":        14544,
+    "bangalore - hebbal":            14545,
+}
+
 # ===================== MOCK AQI DATA =====================
 
 CITY_AQI_BASE = {
@@ -248,8 +282,10 @@ async def fetch_city_aqi(city: str) -> dict:
     waqi_token = os.environ.get('WAQI_TOKEN', '')
     if waqi_token:
         try:
+            uid = WAQI_STATION_UIDS.get(city.lower().strip())
+            feed_path = f"@{uid}" if uid else city
             response = http_requests.get(
-                f"https://api.waqi.info/feed/{city}/?token={waqi_token}",
+                f"https://api.waqi.info/feed/{feed_path}/?token={waqi_token}",
                 timeout=8
             )
             data = response.json()
