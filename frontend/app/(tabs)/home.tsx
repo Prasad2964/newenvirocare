@@ -20,27 +20,30 @@ import PressableScale from '../../src/components/PressableScale';
 import { SkeletonDashboard } from '../../src/components/Skeleton';
 import { COLORS, FONTS, FONT_SIZE, SPACING, RADIUS, getAqiTheme as getTokenTheme } from '../../src/utils/tokens';
 
-// GPS first, IP geo as fallback. Returns null city when denied/failed.
-async function resolveLocation(): Promise<{ city: string | null; denied: boolean }> {
+// GPS first, IP geo as fallback. Returns coords when GPS succeeds so the
+// caller can hit WAQI's geo endpoint for the nearest station.
+async function resolveLocation(): Promise<{
+  city: string | null;
+  denied: boolean;
+  coords: { lat: number; lon: number } | null;
+}> {
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') {
-      return { city: null, denied: true };
+      return { city: null, denied: true, coords: null };
     }
     const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-    const [geo] = await Location.reverseGeocodeAsync({
-      latitude: loc.coords.latitude,
-      longitude: loc.coords.longitude,
-    });
+    const { latitude, longitude } = loc.coords;
+    const [geo] = await Location.reverseGeocodeAsync({ latitude, longitude });
     const gpsCity = geo?.city || geo?.subregion || geo?.region;
     if (gpsCity) {
-      console.log('[Location] GPS city:', gpsCity);
-      return { city: gpsCity, denied: false };
+      console.log('[Location] GPS city:', gpsCity, latitude, longitude);
+      return { city: gpsCity, denied: false, coords: { lat: latitude, lon: longitude } };
     }
   } catch (e) {
     console.log('[Location] GPS failed:', e);
   }
-  // IP geo fallback when GPS coordinates couldn't be reverse-geocoded
+  // IP geo fallback — no precise coords available
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
@@ -49,12 +52,12 @@ async function resolveLocation(): Promise<{ city: string | null; denied: boolean
     const data = await res.json();
     if (data.city) {
       console.log('[Location] IP geo city:', data.city);
-      return { city: data.city, denied: false };
+      return { city: data.city, denied: false, coords: null };
     }
   } catch (e) {
     console.log('[Location] IP geo failed:', e);
   }
-  return { city: null, denied: false };
+  return { city: null, denied: false, coords: null };
 }
 
 export default function HomeScreen() {
@@ -72,6 +75,7 @@ export default function HomeScreen() {
   const [cityInputValue, setCityInputValue] = useState('');
   const [locationPrompt, setLocationPrompt] = useState<string | null>(null);
   const [detectingLocation, setDetectingLocation] = useState(false);
+  const coordsRef = useRef<{ lat: number; lon: number } | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const appState = useRef(AppState.currentState);
@@ -120,8 +124,9 @@ export default function HomeScreen() {
         // Background: check if user's location has changed since last save
         setDetectingLocation(true);
         resolveLocation()
-          .then(({ city: detected }) => {
+          .then(({ city: detected, coords }) => {
             setDetectingLocation(false);
+            if (coords) coordsRef.current = coords;
             if (detected && detected.toLowerCase() !== savedCity.toLowerCase()) {
               setLocationPrompt(detected);
             }
@@ -130,8 +135,9 @@ export default function HomeScreen() {
       } else {
         // First launch or no saved city — foreground GPS detection
         setDetectingLocation(true);
-        const { city: detected, denied } = await resolveLocation();
+        const { city: detected, denied, coords } = await resolveLocation();
         setDetectingLocation(false);
+        if (coords) coordsRef.current = coords;
 
         if (detected) {
           activeCity = detected;
@@ -146,8 +152,14 @@ export default function HomeScreen() {
         }
       }
 
+      // Use GPS coords for nearest-station lookup when available;
+      // fall back to city-name search when coords are absent (IP geo / manual entry).
+      const c = coordsRef.current;
+      const aqiEndpoint = c
+        ? `/api/aqi/geo?lat=${c.lat}&lon=${c.lon}`
+        : `/api/aqi/${encodeURIComponent(activeCity)}`;
       const [aqi, risk, profile] = await Promise.all([
-        api.get(`/api/aqi/${activeCity}`),
+        api.get(aqiEndpoint),
         api.post('/api/risk-assessment', { city: activeCity }).catch(() => null),
         api.get('/api/health-profile').catch(() => null),
       ]);

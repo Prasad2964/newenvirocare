@@ -700,6 +700,56 @@ async def delete_account(user=Depends(get_current_user)):
 
 # ===================== AQI ENDPOINTS =====================
 
+@api_router.get("/aqi/geo")
+async def get_aqi_by_geo(lat: float, lon: float):
+    """Return AQI from the nearest WAQI monitoring station to the given coordinates."""
+    waqi_token = os.environ.get('WAQI_TOKEN', '')
+    if not waqi_token:
+        return await fetch_city_aqi("india")
+    try:
+        response = http_requests.get(
+            f"https://api.waqi.info/feed/geo:{lat};{lon}/?token={waqi_token}",
+            timeout=8,
+        )
+        data = response.json()
+        if data.get('status') == 'ok':
+            d = data['data']
+            aqi = int(d.get('aqi', 0))
+            iaqi = d.get('iaqi', {})
+            geo = d.get('city', {}).get('geo', [])
+            weather = _fetch_weather(geo[0], geo[1]) if len(geo) == 2 else None
+            if not weather:
+                wind_ms = iaqi.get('w', {}).get('v', 2.8)
+                temp = iaqi.get('t', {}).get('v', 25)
+                humidity = iaqi.get('h', {}).get('v', 50)
+                weather = {"temperature": temp, "humidity": humidity,
+                           "wind_speed": round(wind_ms * 3.6, 1),
+                           "description": _weather_description(temp, humidity, wind_ms * 3.6)}
+            station_name = d.get('city', {}).get('name', 'Nearby Station')
+            return {
+                "city": station_name,
+                "aqi": aqi,
+                "level": get_aqi_level(aqi),
+                "primary_pollutant": _primary_pollutant(iaqi),
+                "pollutants": {
+                    "pm25": round(iaqi.get('pm25', {}).get('v', 0), 1),
+                    "pm10": round(iaqi.get('pm10', {}).get('v', 0), 1),
+                    "no2":  round(iaqi.get('no2',  {}).get('v', 0), 1),
+                    "so2":  round(iaqi.get('so2',  {}).get('v', 0), 1),
+                    "co":   round(iaqi.get('co',   {}).get('v', 0), 2),
+                    "o3":   round(iaqi.get('o3',   {}).get('v', 0), 1),
+                },
+                "weather": weather,
+                "mask": get_mask_recommendation(aqi),
+                "timestamp": d.get('time', {}).get('iso', datetime.now(timezone.utc).isoformat()),
+                "is_emergency": aqi > 300,
+                "source": "live",
+                "nearest_station": station_name,
+            }
+    except Exception as e:
+        logger.warning(f"WAQI geo lookup failed for {lat},{lon}: {e}")
+    return await fetch_city_aqi("india")
+
 @api_router.get("/aqi/{city}")
 async def get_city_aqi(city: str):
     return await fetch_city_aqi(city)
