@@ -1034,7 +1034,7 @@ async def chat(req: ChatRequest, user=Depends(get_current_user)):
     symptom_text = "; ".join([", ".join(s.get("symptoms", [])) for s in recent_symptoms]) if recent_symptoms else "None recently"
     aqi_info = f"AQI {req.aqi}" if req.aqi else "AQI unknown"
 
-    system_prompt = f"""You are EnviroCare AI, a personal health assistant specializing in air quality and its effects on health.
+    system_prompt = f"""You are EnviroCare AI, a personal health assistant specialising in air quality and its effects on health.
 
 User Profile:
 - Medical Conditions: {', '.join(conditions) if conditions else 'None'}
@@ -1044,10 +1044,11 @@ User Profile:
 - Current AQI: {aqi_info} in {req.city or 'their city'}
 
 Guidelines:
-- Be concise (2-4 sentences), actionable, empathetic
-- Always tailor advice to their specific conditions
-- Never diagnose — suggest consulting a doctor for medical concerns
-- Focus on air quality, breathing safety, and outdoor activity guidance"""
+- Always write COMPLETE sentences — never stop mid-sentence.
+- Answer in 3-5 full sentences maximum. Finish every sentence before stopping.
+- Tailor advice to the user's specific conditions above.
+- Never diagnose — suggest consulting a doctor for medical concerns.
+- Focus on air quality, breathing safety, and outdoor activity guidance."""
 
     try:
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("EMERGENT_LLM_KEY", "")
@@ -1073,7 +1074,7 @@ Guidelines:
             payload = {
                 "system_instruction": {"parts": [{"text": system_prompt}]},
                 "contents": contents,
-                "generationConfig": {"maxOutputTokens": 512, "temperature": 0.7}
+                "generationConfig": {"maxOutputTokens": 1024, "temperature": 0.7}
             }
             # Retry once on rate limit
             for attempt in range(2):
@@ -1298,6 +1299,21 @@ async def mark_read(notification_id: str, user=Depends(get_current_user)):
 
 # ===================== TRAVEL HOTSPOTS =====================
 
+_ROUTE_CITIES = [
+    "Agra", "Ahmedabad", "Ajmer", "Aligarh", "Allahabad", "Amravati", "Amritsar",
+    "Asansol", "Aurangabad", "Bangalore", "Bareilly", "Belgaum", "Bhilai", "Bhopal",
+    "Bhubaneswar", "Chandigarh", "Chennai", "Coimbatore", "Cuttack", "Dehradun",
+    "Dhanbad", "Durgapur", "Faridabad", "Gaya", "Ghaziabad", "Gorakhpur",
+    "Gurgaon", "Guwahati", "Gwalior", "Hubballi-Dharwad", "Hyderabad", "Indore",
+    "Jabalpur", "Jaipur", "Jalandhar", "Jamshedpur", "Jodhpur", "Kanpur",
+    "Kochi", "Kolkata", "Kota", "Kozhikode", "Lucknow", "Ludhiana", "Madurai",
+    "Mangalore", "Meerut", "Moradabad", "Mumbai", "Mysore", "Nagpur", "Nashik",
+    "Noida", "Patna", "Pune", "Raipur", "Rajkot", "Ranchi", "Saharanpur",
+    "Salem", "Siliguri", "Solapur", "Srinagar", "Surat", "Thane",
+    "Thiruvananthapuram", "Tiruchirappalli", "Udaipur", "Vadodara", "Varanasi",
+    "Vijayawada", "Visakhapatnam", "Warangal",
+]
+
 @api_router.post("/travel/hotspots")
 async def get_travel_hotspots(user=Depends(get_current_user), body: dict = {}):
     origin = body.get("origin", "Mumbai")
@@ -1305,31 +1321,37 @@ async def get_travel_hotspots(user=Depends(get_current_user), body: dict = {}):
     origin_aqi = await fetch_city_aqi(origin)
     dest_aqi = await fetch_city_aqi(destination)
 
+    # Pick intermediate cities from the route list, excluding origin and destination.
+    origin_base = origin.split(" - ")[0].strip()
+    dest_base = destination.split(" - ")[0].strip()
+    candidates = [c for c in _ROUTE_CITIES if c not in (origin_base, dest_base)]
+
     random.seed(hash(origin + destination + str(datetime.now(timezone.utc).date())))
+    num_points = random.randint(3, 5)
+    selected = random.sample(candidates, min(num_points, len(candidates)))
+
+    aqi_lo = max(10, min(origin_aqi["aqi"], dest_aqi["aqi"]) - 20)
+    aqi_hi = min(500, max(origin_aqi["aqi"], dest_aqi["aqi"]) + 40)
+
     midpoints = []
-    num_points = random.randint(3, 6)
-    for i in range(num_points):
-        mid_city = f"Stop {i+1}"
-        mid_aqi = random.randint(
-            min(origin_aqi["aqi"], dest_aqi["aqi"]) - 30,
-            max(origin_aqi["aqi"], dest_aqi["aqi"]) + 30
-        )
-        mid_aqi = max(10, min(500, mid_aqi))
+    for city in selected:
+        mid_aqi = max(10, min(500, random.randint(aqi_lo, aqi_hi)))
         level = get_aqi_level(mid_aqi)
         midpoints.append({
-            "name": mid_city,
+            "name": city,
+            "location": city,
             "aqi": mid_aqi,
             "level": level,
             "is_hotspot": mid_aqi > 150,
-            "description": f"AQI {mid_aqi} - {'Pollution hotspot!' if mid_aqi > 150 else 'Moderate zone'}",
-            "precaution": get_mask_recommendation(mid_aqi)["label"]
+            "description": f"AQI {mid_aqi} — {'Pollution hotspot' if mid_aqi > 150 else 'Moderate zone'}",
+            "precaution": get_mask_recommendation(mid_aqi)["label"],
         })
 
     return {
         "origin": {"name": origin, "aqi": origin_aqi["aqi"]},
         "destination": {"name": destination, "aqi": dest_aqi["aqi"]},
         "hotspots": midpoints,
-        "high_risk_count": sum(1 for p in midpoints if p["is_hotspot"])
+        "high_risk_count": sum(1 for p in midpoints if p["is_hotspot"]),
     }
 
 # ===================== ROOT =====================

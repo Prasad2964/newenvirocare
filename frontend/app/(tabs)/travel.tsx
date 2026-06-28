@@ -368,7 +368,10 @@ export default function TravelScreen() {
                         <View key={i} style={styles.hotspotItem}>
                           <View style={[styles.hotspotDot, { backgroundColor: h.is_hotspot ? '#F87171' : '#4ADE80' }]} />
                           <View style={styles.hotspotInfo}>
-                            <Text style={styles.hotspotName}>{h.name}</Text>
+                            <View style={styles.hotspotNameRow}>
+                              <Ionicons name="location" size={13} color="rgba(255,255,255,0.4)" />
+                              <Text style={styles.hotspotName}>{h.name}</Text>
+                            </View>
                             <Text style={styles.hotspotDesc}>{h.precaution}</Text>
                           </View>
                           <View style={[styles.hotspotAqi, { backgroundColor: spotTheme.primary + '20' }]}>
@@ -471,6 +474,7 @@ const styles = StyleSheet.create({
   },
   hotspotDot:     { width: 10, height: 10, borderRadius: 5 },
   hotspotInfo:    { flex: 1 },
+  hotspotNameRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   hotspotName:    { fontSize: 14, fontWeight: '600', color: '#FFF' },
   hotspotDesc:    { fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 2 },
   hotspotAqi:     { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
