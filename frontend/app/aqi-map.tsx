@@ -8,7 +8,25 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
 
-function buildMapHtml(lat: number, lon: number, city: string): string {
+// Colours and labels match the EPA AQI scale
+function aqiColor(v: number) {
+  if (v <= 50)  return '#00E400';
+  if (v <= 100) return '#FFFF00';
+  if (v <= 150) return '#FF7E00';
+  if (v <= 200) return '#FF0000';
+  if (v <= 300) return '#8F3F97';
+  return '#7E0023';
+}
+
+interface Station {
+  lat: number;
+  lon: number;
+  aqi: number;
+  name: string;
+}
+
+function buildMapHtml(lat: number, lon: number, city: string, stations: Station[]): string {
+  const stationsJson = JSON.stringify(stations);
   const legendItems = [
     { color: '#00E400', label: 'Good' },
     { color: '#FFFF00', label: 'Moderate' },
@@ -28,8 +46,7 @@ function buildMapHtml(lat: number, lon: number, city: string): string {
     *{margin:0;padding:0;box-sizing:border-box}
     html,body{width:100%;height:100%;overflow:hidden;background:#0A1520;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
     #map{width:100%;height:100%;background:#0A1520}
-    /* Invert OSM tiles to get a dark map. AQI overlay lives in a custom pane
-       that sits outside .leaflet-tile-pane, so its colours are never inverted. */
+    /* Invert OSM tiles to dark. AQI overlay pane is excluded from this filter. */
     .leaflet-tile-pane{filter:invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%)}
 
     .city-badge{
@@ -41,11 +58,7 @@ function buildMapHtml(lat: number, lon: number, city: string): string {
     }
     .city-badge span{color:#fff;font-size:13px;font-weight:600}
     .city-badge small{color:rgba(255,255,255,0.45);font-size:11px}
-    .live-dot{
-      width:8px;height:8px;border-radius:50%;background:#4ADE80;
-      box-shadow:0 0 6px rgba(74,222,128,0.8);
-      animation:blink 1.6s ease-in-out infinite;
-    }
+    .live-dot{width:8px;height:8px;border-radius:50%;background:#4ADE80;box-shadow:0 0 6px rgba(74,222,128,0.8);animation:blink 1.6s ease-in-out infinite}
     @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
 
     .legend{
@@ -75,7 +88,6 @@ function buildMapHtml(lat: number, lon: number, city: string): string {
     }
     .leaflet-popup-tip{background:rgba(10,21,32,0.95)!important}
     .leaflet-popup-close-button{color:rgba(255,255,255,0.5)!important;font-size:18px!important;top:8px!important;right:8px!important}
-
     #map-init-msg{
       position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
       color:rgba(255,255,255,0.35);font-size:13px;text-align:center;
@@ -85,13 +97,11 @@ function buildMapHtml(lat: number, lon: number, city: string): string {
 </head>
 <body>
   <div id="map"></div>
-
   <div class="city-badge">
     <div class="live-dot"></div>
     <span>${city}</span>
     <small>Live AQI</small>
   </div>
-
   <div class="legend">
     <span class="legend-label">AQI</span>
     ${legendItems.map(i => `
@@ -101,10 +111,12 @@ function buildMapHtml(lat: number, lon: number, city: string): string {
       </div>
     `).join('')}
   </div>
-
-  <div id="map-init-msg">Loading map tiles...</div>
+  <div id="map-init-msg">Loading map...</div>
 
   <script>
+    // Station data pre-fetched by the app (no CORS dependency)
+    var STATIONS = ${stationsJson};
+
     function aqiColor(v) {
       if (v <= 50)  return '#00E400';
       if (v <= 100) return '#FFFF00';
@@ -121,77 +133,61 @@ function buildMapHtml(lat: number, lon: number, city: string): string {
       if (v <= 300) return 'Very Unhealthy';
       return 'Hazardous';
     }
-    function stationPopup(name, aqi) {
+    function makePopup(name, aqi) {
       var c = aqiColor(aqi);
       return '<div style="padding:8px 4px;min-width:160px">'
-        + '<div style="font-size:11px;color:rgba(255,255,255,0.45);margin-bottom:6px;font-weight:500;line-height:1.4">' + name + '</div>'
+        + '<div style="font-size:11px;color:rgba(255,255,255,0.45);margin-bottom:6px;line-height:1.4">' + name + '</div>'
         + '<div style="font-size:38px;font-weight:800;color:' + c + ';line-height:1;letter-spacing:-1px">' + aqi + '</div>'
-        + '<div style="font-size:11px;font-weight:700;color:' + c + ';margin-top:6px;text-transform:uppercase;letter-spacing:0.6px">' + aqiLabel(aqi) + '</div>'
+        + '<div style="font-size:11px;font-weight:700;color:' + c + ';margin-top:6px;text-transform:uppercase;letter-spacing:0.5px">' + aqiLabel(aqi) + '</div>'
         + '</div>';
     }
 
-    var map, stationGroup, moveTimer;
-
-    function loadStations() {
-      var b = map.getBounds();
-      var latlng = b.getSouth().toFixed(4) + ',' + b.getWest().toFixed(4)
-                 + ',' + b.getNorth().toFixed(4) + ',' + b.getEast().toFixed(4);
-      fetch('https://api.waqi.info/map/bounds/?latlng=' + latlng + '&token=demo')
-        .then(function(r) { return r.json(); })
-        .then(function(res) {
-          stationGroup.clearLayers();
-          if (res.status !== 'ok' || !Array.isArray(res.data)) return;
-          res.data.forEach(function(s) {
-            var aqi = parseInt(s.aqi);
-            if (isNaN(aqi) || aqi < 0) return;
-            var c = aqiColor(aqi);
-            L.circleMarker([s.lat, s.lon], {
-              radius: 13,
-              fillColor: c,
-              color: '#fff',
-              weight: 2,
-              opacity: 1,
-              fillOpacity: 0.88,
-              pane: 'aqi',
-            })
-            .bindPopup(stationPopup(s.station.name, aqi), { maxWidth: 240 })
-            .addTo(stationGroup);
-          });
-        })
-        .catch(function() {});
-    }
-
     function initMap() {
-      var msg = document.getElementById('map-init-msg');
-      if (msg) msg.style.display = 'none';
+      document.getElementById('map-init-msg').style.display = 'none';
 
-      map = L.map('map', { zoomControl: false, attributionControl: false })
-              .setView([${lat}, ${lon}], 9);
+      var map = L.map('map', { zoomControl: false, attributionControl: false })
+                  .setView([${lat}, ${lon}], 10);
 
-      // OSM as base — reliable from any origin. CSS invert (above) makes it dark.
+      // OSM base — inverted to dark via CSS above
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 18, crossOrigin: true,
       }).addTo(map);
 
-      // Custom pane for all AQI content — sits above tiles but excluded from CSS invert.
+      // Custom pane: outside .leaflet-tile-pane so CSS invert never touches it
       map.createPane('aqi');
       map.getPane('aqi').style.zIndex = 450;
 
-      // Layer group for station markers (cleared and refilled on pan/zoom)
-      stationGroup = L.layerGroup([], { pane: 'aqi' }).addTo(map);
+      // WAQI AQI tile overlay (heatmap colours)
+      L.tileLayer('https://tiles.aqicn.org/tiles/usepa-aqi/{z}/{x}/{y}.png?token=demo', {
+        opacity: 0.65, maxZoom: 18, pane: 'aqi',
+      }).addTo(map);
+
+      // Tappable station markers from pre-fetched data
+      STATIONS.forEach(function(s) {
+        var c = aqiColor(s.aqi);
+        L.circleMarker([s.lat, s.lon], {
+          radius: 14,
+          fillColor: c,
+          color: 'rgba(255,255,255,0.9)',
+          weight: 2,
+          opacity: 1,
+          fillOpacity: 0.92,
+          pane: 'aqi',
+        })
+        .bindPopup(makePopup(s.name, s.aqi), { maxWidth: 240 })
+        .addTo(map);
+      });
 
       L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-      // User's city marker
+      // Pulsing marker for the user's city
       var pulseIcon = L.divIcon({
         html: '<div style="position:relative;width:20px;height:20px">'
             + '<div style="position:absolute;inset:0;border-radius:50%;background:rgba(74,222,128,0.25);animation:ring 1.8s ease-out infinite"></div>'
             + '<div style="position:absolute;inset:4px;border-radius:50%;background:#4ADE80;border:2px solid #fff;box-shadow:0 0 14px rgba(74,222,128,0.9)"></div>'
             + '</div>'
             + '<style>@keyframes ring{0%{transform:scale(1);opacity:0.8}100%{transform:scale(2.5);opacity:0}}</style>',
-        className: '',
-        iconSize: [20, 20],
-        iconAnchor: [10, 10],
+        className: '', iconSize: [20, 20], iconAnchor: [10, 10],
       });
       L.marker([${lat}, ${lon}], { icon: pulseIcon })
         .bindPopup(
@@ -203,23 +199,14 @@ function buildMapHtml(lat: number, lon: number, city: string): string {
         .openPopup()
         .addTo(map);
 
-      // Load stations for current view, then refresh on every pan/zoom (debounced)
-      loadStations();
-      map.on('moveend', function() {
-        clearTimeout(moveTimer);
-        moveTimer = setTimeout(loadStations, 500);
-      });
-
       setTimeout(function() { map.invalidateSize(); }, 500);
     }
 
     function onLeafletError() {
-      var msg = document.getElementById('map-init-msg');
-      if (msg) msg.textContent = 'Could not load map.\\nCheck your connection.';
+      document.getElementById('map-init-msg').textContent = 'Could not load map.\\nCheck your connection.';
     }
   </script>
 
-  <!-- async so the WebView onLoad fires immediately without waiting for this CDN script -->
   <script async src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           crossorigin=""
           onload="initMap()"
@@ -233,37 +220,64 @@ export default function AqiMapScreen() {
   const { city } = useLocalSearchParams<{ city: string }>();
   const [loading, setLoading] = useState(true);
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [stations, setStations] = useState<Station[]>([]);
 
   const displayCity = (Array.isArray(city) ? city[0] : city) || 'India';
 
   useEffect(() => {
-    // City name only — no ", India" suffix so non-Indian cities also work
     const query = encodeURIComponent(displayCity);
+
+    // Geocode city name → coordinates
     fetch(`https://nominatim.openstreetmap.org/search?q=${query}&format=json&limit=1`, {
-      headers: {
-        'Accept-Language': 'en',
-        'User-Agent': 'EnviroCareApp/2.0',
-      },
+      headers: { 'Accept-Language': 'en', 'User-Agent': 'EnviroCareApp/2.0' },
     })
       .then(r => r.json())
       .then(results => {
-        if (results && results[0]) {
+        if (results?.[0]) {
           setCoords({ lat: parseFloat(results[0].lat), lon: parseFloat(results[0].lon) });
         } else {
           setCoords({ lat: 20.5937, lon: 78.9629 });
         }
       })
       .catch(() => setCoords({ lat: 20.5937, lon: 78.9629 }));
+
+    // Pre-fetch WAQI stations here (React Native / browser fetch — no CORS issue)
+    // The demo token supports the /search/ endpoint reliably
+    fetch(`https://api.waqi.info/search/?keyword=${query}&token=demo`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.status === 'ok' && Array.isArray(data.data)) {
+          const parsed: Station[] = data.data
+            .filter((s: any) => s.station?.geo && s.aqi && s.aqi !== '-')
+            .map((s: any) => ({
+              lat: s.station.geo[0],
+              lon: s.station.geo[1],
+              aqi: parseInt(s.aqi, 10),
+              name: s.station.name,
+            }))
+            .filter((s: Station) => !isNaN(s.aqi) && s.aqi >= 0);
+          setStations(parsed);
+        }
+      })
+      .catch(() => {});
   }, [displayCity]);
 
-  const htmlContent = coords ? buildMapHtml(coords.lat, coords.lon, displayCity) : null;
+  const htmlContent = coords ? buildMapHtml(coords.lat, coords.lon, displayCity, stations) : null;
+
+  function goBack() {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)/home');
+    }
+  }
 
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.flex} edges={['top']}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <TouchableOpacity style={styles.backBtn} onPress={goBack} activeOpacity={0.7}>
             <Ionicons name="chevron-back" size={22} color="#FFF" />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
@@ -276,9 +290,8 @@ export default function AqiMapScreen() {
           <View style={{ width: 40 }} />
         </View>
 
-        {/* Map */}
+        {/* Map area */}
         <View style={styles.mapContainer}>
-          {/* Spinner while geocoding city or WebView loading */}
           {(!coords || loading) && (
             <View style={styles.loaderOverlay}>
               <ActivityIndicator size="large" color="#4ADE80" />
@@ -299,8 +312,6 @@ export default function AqiMapScreen() {
               />
             ) : (
               <WebView
-                // baseUrl lets the WebView treat external resource requests as
-                // coming from a real origin, avoiding Android's null-origin blocks
                 source={{ html: htmlContent, baseUrl: 'https://unpkg.com' }}
                 style={styles.webview}
                 onLoadEnd={() => setLoading(false)}
@@ -318,7 +329,7 @@ export default function AqiMapScreen() {
         {/* Footer */}
         <View style={styles.footer}>
           <Ionicons name="leaf-outline" size={13} color="#4ADE80" />
-          <Text style={styles.footerText}>Data · World Air Quality Index (WAQI)  ·  Map · CartoDB</Text>
+          <Text style={styles.footerText}>Data · WAQI  ·  Map · OpenStreetMap</Text>
         </View>
       </SafeAreaView>
     </View>
@@ -335,7 +346,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)',
   },
   backBtn: {
-    width: 38, height: 38, borderRadius: 19,
+    width: 40, height: 40, borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.07)',
     alignItems: 'center', justifyContent: 'center',
   },
