@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, FlatList, Modal, ActivityIndicator,
+  ScrollView, FlatList, ActivityIndicator,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -32,7 +32,7 @@ const INDIAN_CITIES = [
   'Visakhapatnam', 'Warangal',
 ];
 
-// ── Searchable city dropdown ──────────────────────────────────────────────────
+// ── Inline searchable city dropdown ──────────────────────────────────────────
 function CityDropdown({
   value,
   onChange,
@@ -62,85 +62,81 @@ function CityDropdown({
   }
 
   return (
-    <>
+    <View>
+      {/* Trigger row */}
       <TouchableOpacity
-        style={[styles.dropdownBtn, value ? { borderColor: accentColor + '60' } : {}]}
-        onPress={() => setOpen(true)}
+        style={styles.dropdownBtn}
+        onPress={() => setOpen(o => !o)}
         activeOpacity={0.7}
       >
         <View style={[styles.dropdownDot, { backgroundColor: accentColor }]} />
         <Text style={[styles.dropdownValue, !value && styles.dropdownPlaceholder]} numberOfLines={1}>
           {value || placeholder}
         </Text>
-        <Ionicons name="chevron-down" size={16} color="rgba(255,255,255,0.35)" />
+        <Ionicons
+          name={open ? 'chevron-up' : 'chevron-down'}
+          size={16}
+          color={open ? accentColor : 'rgba(255,255,255,0.35)'}
+        />
       </TouchableOpacity>
 
-      <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
-            {/* Header */}
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select City</Text>
-              <TouchableOpacity onPress={() => { setOpen(false); setQuery(''); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Ionicons name="close" size={22} color="rgba(255,255,255,0.6)" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Search */}
-            <View style={styles.searchRow}>
-              <Ionicons name="search" size={16} color="rgba(255,255,255,0.35)" />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search city..."
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                value={query}
-                onChangeText={setQuery}
-                autoFocus
-                autoCapitalize="words"
-                returnKeyType="search"
-              />
-              {query.length > 0 && (
-                <TouchableOpacity onPress={() => setQuery('')}>
-                  <Ionicons name="close-circle" size={16} color="rgba(255,255,255,0.3)" />
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {/* City list */}
-            <FlatList
-              data={filtered}
-              keyExtractor={item => item}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[styles.cityItem, item === value && { backgroundColor: accentColor + '18' }]}
-                  onPress={() => select(item)}
-                  activeOpacity={0.6}
-                >
-                  <Ionicons
-                    name={item === value ? 'location' : 'location-outline'}
-                    size={16}
-                    color={item === value ? accentColor : 'rgba(255,255,255,0.3)'}
-                  />
-                  <Text style={[styles.cityItemText, item === value && { color: accentColor }]}>
-                    {item}
-                  </Text>
-                  {item === value && (
-                    <Ionicons name="checkmark" size={16} color={accentColor} style={{ marginLeft: 'auto' }} />
-                  )}
-                </TouchableOpacity>
-              )}
-              ListEmptyComponent={
-                <View style={styles.emptyList}>
-                  <Text style={styles.emptyText}>No cities match "{query}"</Text>
-                </View>
-              }
+      {/* Inline list — expands below the trigger */}
+      {open && (
+        <View style={[styles.dropdownList, { borderColor: accentColor + '40' }]}>
+          {/* Search bar */}
+          <View style={styles.dropdownSearch}>
+            <Ionicons name="search" size={14} color="rgba(255,255,255,0.35)" />
+            <TextInput
+              style={styles.dropdownSearchInput}
+              placeholder="Search city..."
+              placeholderTextColor="rgba(255,255,255,0.3)"
+              value={query}
+              onChangeText={setQuery}
+              autoCapitalize="words"
             />
+            {query.length > 0 && (
+              <TouchableOpacity onPress={() => setQuery('')} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                <Ionicons name="close-circle" size={14} color="rgba(255,255,255,0.3)" />
+              </TouchableOpacity>
+            )}
           </View>
+
+          <FlatList
+            data={filtered}
+            keyExtractor={item => item}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
+            showsVerticalScrollIndicator
+            style={styles.dropdownFlatList}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={[
+                  styles.dropdownItem,
+                  item === value && { backgroundColor: accentColor + '20' },
+                ]}
+                onPress={() => select(item)}
+                activeOpacity={0.6}
+              >
+                <Ionicons
+                  name={item === value ? 'location' : 'location-outline'}
+                  size={14}
+                  color={item === value ? accentColor : 'rgba(255,255,255,0.3)'}
+                />
+                <Text style={[styles.dropdownItemText, item === value && { color: accentColor, fontWeight: '700' }]}>
+                  {item}
+                </Text>
+                {item === value && (
+                  <Ionicons name="checkmark" size={14} color={accentColor} style={{ marginLeft: 'auto' }} />
+                )}
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={
+              <Text style={styles.dropdownEmpty}>No cities match "{query}"</Text>
+            }
+          />
         </View>
-      </Modal>
-    </>
+      )}
+    </View>
   );
 }
 
@@ -439,51 +435,40 @@ const styles = StyleSheet.create({
   title: { fontSize: 32, fontWeight: '800', color: '#FFF', letterSpacing: -0.5 },
   subtitle: { fontSize: 15, color: 'rgba(255,255,255,0.5)', marginTop: 4, marginBottom: 24 },
 
-  // ── Dropdown ─────────────────────────────────────────────────────────────
+  // ── Inline dropdown ───────────────────────────────────────────────────────
   inputCard: { marginBottom: 16 },
   dropdownBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingVertical: 14, paddingHorizontal: 4,
-    borderRadius: 10, borderWidth: 1, borderColor: 'transparent',
   },
   dropdownDot: { width: 11, height: 11, borderRadius: 6 },
   dropdownValue: { flex: 1, color: '#FFF', fontSize: 15, fontWeight: '500' },
   dropdownPlaceholder: { color: 'rgba(255,255,255,0.3)', fontWeight: '400' },
   divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.1)', marginVertical: 2, marginLeft: 24 },
 
-  // ── Modal sheet ───────────────────────────────────────────────────────────
-  modalOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'flex-end',
+  dropdownList: {
+    borderWidth: 1, borderRadius: 12,
+    backgroundColor: 'rgba(8,18,28,0.98)',
+    marginBottom: 4, overflow: 'hidden',
   },
-  modalSheet: {
-    backgroundColor: '#0D1B2A',
-    borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
-    maxHeight: '78%', paddingBottom: 24,
+  dropdownSearch: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 12, paddingVertical: 9,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
   },
-  modalHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingVertical: 18,
-    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)',
-  },
-  modalTitle: { fontSize: 17, fontWeight: '700', color: '#FFF' },
-  searchRow: {
+  dropdownSearchInput: { flex: 1, color: '#FFF', fontSize: 13, paddingVertical: 0 },
+  dropdownFlatList: { maxHeight: 210 },
+  dropdownItem: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    marginHorizontal: 16, marginVertical: 12,
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    borderRadius: 12, paddingHorizontal: 14, height: 44,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
-  },
-  searchInput: { flex: 1, color: '#FFF', fontSize: 15 },
-  cityItem: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingHorizontal: 20, paddingVertical: 13,
+    paddingHorizontal: 14, paddingVertical: 11,
     borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)',
   },
-  cityItemText: { fontSize: 15, color: 'rgba(255,255,255,0.75)', fontWeight: '500' },
-  emptyList: { alignItems: 'center', paddingVertical: 40 },
-  emptyText: { color: 'rgba(255,255,255,0.3)', fontSize: 14 },
+  dropdownItemText: { fontSize: 14, color: 'rgba(255,255,255,0.7)', fontWeight: '500' },
+  dropdownEmpty: {
+    textAlign: 'center', color: 'rgba(255,255,255,0.3)',
+    fontSize: 13, paddingVertical: 20,
+  },
 
   // ── Compare button ────────────────────────────────────────────────────────
   compareBtn: {
