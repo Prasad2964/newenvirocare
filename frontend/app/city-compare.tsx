@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform,
+  ScrollView, FlatList, Modal, ActivityIndicator,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,7 +12,139 @@ import api from '../src/utils/api';
 import { getAqiTheme } from '../src/utils/theme';
 import GlassCard from '../src/components/GlassCard';
 
-// ── Risk engine (mirrors backend calculate_risk_score) ──────────────────────
+// ── Indian cities list ────────────────────────────────────────────────────────
+const INDIAN_CITIES = [
+  'Agra', 'Ahmedabad', 'Ajmer', 'Aligarh', 'Allahabad', 'Amravati', 'Amritsar',
+  'Asansol', 'Aurangabad', 'Bangalore', 'Bareilly', 'Belgaum', 'Bhavnagar',
+  'Bhilai', 'Bhiwandi', 'Bhopal', 'Bhubaneswar', 'Bikaner', 'Chandigarh',
+  'Chennai', 'Coimbatore', 'Cuttack', 'Davanagere', 'Dehradun', 'Delhi',
+  'Dhanbad', 'Durgapur', 'Erode', 'Faridabad', 'Gaya', 'Ghaziabad', 'Gorakhpur',
+  'Gulbarga', 'Guntur', 'Gurgaon', 'Guwahati', 'Gwalior', 'Hubballi-Dharwad',
+  'Hyderabad', 'Indore', 'Jabalpur', 'Jaipur', 'Jalandhar', 'Jalgaon',
+  'Jamnagar', 'Jammu', 'Jamshedpur', 'Jhansi', 'Jodhpur', 'Kanpur', 'Kochi',
+  'Kolhapur', 'Kolkata', 'Kota', 'Kozhikode', 'Lucknow', 'Ludhiana',
+  'Madurai', 'Maheshtala', 'Malegaon', 'Mangalore', 'Meerut', 'Moradabad',
+  'Mumbai', 'Mysore', 'Nagpur', 'Nanded', 'Nashik', 'Nellore', 'Noida',
+  'Patna', 'Pimpri-Chinchwad', 'Pune', 'Raipur', 'Rajkot', 'Ranchi',
+  'Saharanpur', 'Salem', 'Sangli', 'Siliguri', 'Solapur', 'Srinagar',
+  'Surat', 'Thane', 'Thiruvananthapuram', 'Tiruchirappalli', 'Tirunelveli',
+  'Udaipur', 'Ujjain', 'Ulhasnagar', 'Vadodara', 'Varanasi', 'Vijayawada',
+  'Visakhapatnam', 'Warangal',
+];
+
+// ── Searchable city dropdown ──────────────────────────────────────────────────
+function CityDropdown({
+  value,
+  onChange,
+  placeholder,
+  accentColor,
+}: {
+  value: string;
+  onChange: (c: string) => void;
+  placeholder: string;
+  accentColor: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+
+  const filtered = useMemo(
+    () =>
+      query.trim()
+        ? INDIAN_CITIES.filter(c => c.toLowerCase().includes(query.toLowerCase()))
+        : INDIAN_CITIES,
+    [query],
+  );
+
+  function select(city: string) {
+    onChange(city);
+    setOpen(false);
+    setQuery('');
+  }
+
+  return (
+    <>
+      <TouchableOpacity
+        style={[styles.dropdownBtn, value ? { borderColor: accentColor + '60' } : {}]}
+        onPress={() => setOpen(true)}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.dropdownDot, { backgroundColor: accentColor }]} />
+        <Text style={[styles.dropdownValue, !value && styles.dropdownPlaceholder]} numberOfLines={1}>
+          {value || placeholder}
+        </Text>
+        <Ionicons name="chevron-down" size={16} color="rgba(255,255,255,0.35)" />
+      </TouchableOpacity>
+
+      <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            {/* Header */}
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select City</Text>
+              <TouchableOpacity onPress={() => { setOpen(false); setQuery(''); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={22} color="rgba(255,255,255,0.6)" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Search */}
+            <View style={styles.searchRow}>
+              <Ionicons name="search" size={16} color="rgba(255,255,255,0.35)" />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search city..."
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                value={query}
+                onChangeText={setQuery}
+                autoFocus
+                autoCapitalize="words"
+                returnKeyType="search"
+              />
+              {query.length > 0 && (
+                <TouchableOpacity onPress={() => setQuery('')}>
+                  <Ionicons name="close-circle" size={16} color="rgba(255,255,255,0.3)" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* City list */}
+            <FlatList
+              data={filtered}
+              keyExtractor={item => item}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.cityItem, item === value && { backgroundColor: accentColor + '18' }]}
+                  onPress={() => select(item)}
+                  activeOpacity={0.6}
+                >
+                  <Ionicons
+                    name={item === value ? 'location' : 'location-outline'}
+                    size={16}
+                    color={item === value ? accentColor : 'rgba(255,255,255,0.3)'}
+                  />
+                  <Text style={[styles.cityItemText, item === value && { color: accentColor }]}>
+                    {item}
+                  </Text>
+                  {item === value && (
+                    <Ionicons name="checkmark" size={16} color={accentColor} style={{ marginLeft: 'auto' }} />
+                  )}
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={
+                <View style={styles.emptyList}>
+                  <Text style={styles.emptyText}>No cities match "{query}"</Text>
+                </View>
+              }
+            />
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
+}
+
+// ── Risk engine (mirrors backend calculate_risk_score) ────────────────────────
 const CONDITION_MULTIPLIERS: Record<string, number> = {
   asthma: 2.0, copd: 2.5, 'heart disease': 1.8,
   diabetes: 1.3, hypertension: 1.4, 'lung disease': 2.2,
@@ -40,8 +173,8 @@ function calcRisk(aqi: number, conditions: string[]) {
   else                  { level = 'Dangerous';     color = '#FF0000'; }
   return { score, level, color, triggered };
 }
-// ────────────────────────────────────────────────────────────────────────────
 
+// ── Main screen ───────────────────────────────────────────────────────────────
 export default function CityCompareScreen() {
   const router = useRouter();
   const [city1, setCity1] = useState('');
@@ -59,10 +192,10 @@ export default function CityCompareScreen() {
   }, []);
 
   async function compare() {
-    if (!city1.trim() || !city2.trim()) return;
+    if (!city1 || !city2) return;
     setLoading(true);
     try {
-      const data = await api.post('/api/aqi/compare', { city1: city1.trim(), city2: city2.trim() });
+      const data = await api.post('/api/aqi/compare', { city1, city2 });
       setResult(data);
     } catch {
       // handled silently
@@ -75,12 +208,9 @@ export default function CityCompareScreen() {
   const theme2 = result ? getAqiTheme(result.city2.aqi) : null;
   const risk1 = result && conditions.length > 0 ? calcRisk(result.city1.aqi, conditions) : null;
   const risk2 = result && conditions.length > 0 ? calcRisk(result.city2.aqi, conditions) : null;
-
   const betterForHealth =
     risk1 && risk2
-      ? risk1.score <= risk2.score
-        ? result.city1.city
-        : result.city2.city
+      ? risk1.score <= risk2.score ? result.city1.city : result.city2.city
       : null;
 
   return (
@@ -103,40 +233,30 @@ export default function CityCompareScreen() {
             </TouchableOpacity>
 
             <Text style={styles.title}>City Comparison</Text>
-            <Text style={styles.subtitle}>Compare air quality between two cities</Text>
+            <Text style={styles.subtitle}>Compare air quality between two Indian cities</Text>
 
-            {/* City inputs */}
+            {/* City selectors */}
             <GlassCard style={styles.inputCard}>
-              <View style={styles.inputRow}>
-                <View style={[styles.dot, { backgroundColor: '#4ADE80' }]} />
-                <TextInput
-                  testID="compare-city1-input"
-                  style={styles.input}
-                  placeholder="First City (e.g. Delhi)"
-                  placeholderTextColor="rgba(255,255,255,0.3)"
-                  value={city1}
-                  onChangeText={setCity1}
-                />
-              </View>
+              <CityDropdown
+                value={city1}
+                onChange={v => { setCity1(v); setResult(null); }}
+                placeholder="Select first city"
+                accentColor="#4ADE80"
+              />
               <View style={styles.divider} />
-              <View style={styles.inputRow}>
-                <View style={[styles.dot, { backgroundColor: '#06B6D4' }]} />
-                <TextInput
-                  testID="compare-city2-input"
-                  style={styles.input}
-                  placeholder="Second City (e.g. Bangalore)"
-                  placeholderTextColor="rgba(255,255,255,0.3)"
-                  value={city2}
-                  onChangeText={setCity2}
-                />
-              </View>
+              <CityDropdown
+                value={city2}
+                onChange={v => { setCity2(v); setResult(null); }}
+                placeholder="Select second city"
+                accentColor="#06B6D4"
+              />
             </GlassCard>
 
             <TouchableOpacity
               testID="compare-btn"
-              style={[styles.compareBtn, loading && { opacity: 0.6 }]}
+              style={[styles.compareBtn, (!city1 || !city2 || loading) && { opacity: 0.5 }]}
               onPress={compare}
-              disabled={loading}
+              disabled={!city1 || !city2 || loading}
             >
               {loading ? <ActivityIndicator color="#000" /> : (
                 <>
@@ -199,7 +319,7 @@ export default function CityCompareScreen() {
                   </GlassCard>
                 </View>
 
-                {/* Winner (AQI only) */}
+                {/* Winner (raw AQI) */}
                 <GlassCard testID="winner-card" style={styles.winnerCard}>
                   <Ionicons name="trophy" size={28} color="#FACC15" />
                   <Text style={styles.winnerText}>
@@ -210,10 +330,9 @@ export default function CityCompareScreen() {
                   </Text>
                 </GlassCard>
 
-                {/* ── Personalised risk section ─────────────────────────── */}
+                {/* ── Personalised risk ─────────────────────────────────── */}
                 {risk1 && risk2 ? (
                   <GlassCard style={styles.riskCard}>
-                    {/* Header */}
                     <View style={styles.riskHeader}>
                       <Ionicons name="fitness" size={20} color="#A78BFA" />
                       <Text style={styles.riskTitle}>Your Personal Risk</Text>
@@ -222,28 +341,20 @@ export default function CityCompareScreen() {
                       Based on: {conditions.join(', ')}
                     </Text>
 
-                    {/* Two-column risk scores */}
                     <View style={styles.riskCols}>
-                      {[
+                      {([
                         { city: result.city1.city, risk: risk1 },
                         { city: result.city2.city, risk: risk2 },
-                      ].map(({ city, risk }, i) => (
+                      ] as const).map(({ city, risk }, i) => (
                         <View key={i} style={styles.riskCol}>
                           <Text style={styles.riskCityName} numberOfLines={1}>{city}</Text>
                           <Text style={[styles.riskScore, { color: risk.color }]}>
                             {risk.score}<Text style={styles.riskPct}>%</Text>
                           </Text>
                           <Text style={[styles.riskLevel, { color: risk.color }]}>{risk.level}</Text>
-                          {/* Progress bar */}
                           <View style={styles.barBg}>
-                            <View
-                              style={[
-                                styles.barFill,
-                                { width: `${risk.score}%` as any, backgroundColor: risk.color },
-                              ]}
-                            />
+                            <View style={[styles.barFill, { width: `${risk.score}%` as any, backgroundColor: risk.color }]} />
                           </View>
-                          {/* Which conditions are triggered */}
                           {risk.triggered.length > 0 && (
                             <View style={styles.triggeredList}>
                               {risk.triggered.map((c, j) => (
@@ -257,24 +368,22 @@ export default function CityCompareScreen() {
                       ))}
                     </View>
 
-                    {/* Personalised recommendation */}
                     <View style={styles.riskRec}>
                       <Ionicons name="shield-checkmark" size={15} color="#A78BFA" />
                       <Text style={styles.riskRecText}>
                         {risk1.score === risk2.score
-                          ? `Both cities carry equal risk for your conditions.`
+                          ? 'Both cities carry equal personal risk for your conditions.'
                           : `${betterForHealth} is safer for your health — ${Math.abs(risk1.score - risk2.score)}% less personal risk.`}
                       </Text>
                     </View>
 
-                    {/* Condition-specific tips */}
-                    {(risk1.triggered.length > 0 || risk2.triggered.length > 0) && (
+                    {conditions.length > 0 && (
                       <View style={styles.tipsBox}>
                         {conditions.map((c, i) => {
                           const cl = c.toLowerCase();
                           let tip = '';
                           if (cl.includes('asthma') || cl.includes('copd') || cl.includes('lung'))
-                            tip = 'Keep rescue inhaler handy and avoid peak-traffic hours outdoors.';
+                            tip = 'Keep your rescue inhaler handy and avoid peak-traffic hours outdoors.';
                           else if (cl.includes('heart') || cl.includes('hypertension'))
                             tip = 'Limit strenuous outdoor exercise; monitor blood pressure closely.';
                           else if (cl.includes('allerg'))
@@ -282,12 +391,14 @@ export default function CityCompareScreen() {
                           else if (cl.includes('pregnan'))
                             tip = 'Minimise outdoor exposure — PM2.5 can cross the placental barrier.';
                           else if (cl.includes('diabet'))
-                            tip = 'High AQI can raise inflammation markers; stay hydrated indoors.';
+                            tip = 'High AQI raises inflammation markers; stay hydrated indoors.';
                           if (!tip) return null;
                           return (
                             <View key={i} style={styles.tipRow}>
                               <Ionicons name="alert-circle-outline" size={13} color="rgba(167,139,250,0.6)" />
-                              <Text style={styles.tipText}><Text style={styles.tipCond}>{c}: </Text>{tip}</Text>
+                              <Text style={styles.tipText}>
+                                <Text style={styles.tipCond}>{c}: </Text>{tip}
+                              </Text>
                             </View>
                           );
                         })}
@@ -295,20 +406,16 @@ export default function CityCompareScreen() {
                     )}
                   </GlassCard>
                 ) : (
-                  // Nudge when no health profile
                   <TouchableOpacity
                     style={styles.nudgeRow}
                     onPress={() => router.push('/settings')}
                     activeOpacity={0.7}
                   >
                     <Ionicons name="person-circle-outline" size={18} color="#A78BFA" />
-                    <Text style={styles.nudgeText}>
-                      Add your health profile for personalised risk analysis
-                    </Text>
+                    <Text style={styles.nudgeText}>Add your health profile for personalised risk analysis</Text>
                     <Ionicons name="chevron-forward" size={16} color="rgba(167,139,250,0.5)" />
                   </TouchableOpacity>
                 )}
-                {/* ── end personalised section ─────────────────────────── */}
               </>
             )}
 
@@ -331,16 +438,61 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 32, fontWeight: '800', color: '#FFF', letterSpacing: -0.5 },
   subtitle: { fontSize: 15, color: 'rgba(255,255,255,0.5)', marginTop: 4, marginBottom: 24 },
+
+  // ── Dropdown ─────────────────────────────────────────────────────────────
   inputCard: { marginBottom: 16 },
-  inputRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 4 },
-  dot: { width: 12, height: 12, borderRadius: 6 },
-  input: { flex: 1, color: '#FFF', fontSize: 16, height: 44 },
-  divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.1)', marginVertical: 8, marginLeft: 24 },
+  dropdownBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 14, paddingHorizontal: 4,
+    borderRadius: 10, borderWidth: 1, borderColor: 'transparent',
+  },
+  dropdownDot: { width: 11, height: 11, borderRadius: 6 },
+  dropdownValue: { flex: 1, color: '#FFF', fontSize: 15, fontWeight: '500' },
+  dropdownPlaceholder: { color: 'rgba(255,255,255,0.3)', fontWeight: '400' },
+  divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.1)', marginVertical: 2, marginLeft: 24 },
+
+  // ── Modal sheet ───────────────────────────────────────────────────────────
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: '#0D1B2A',
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+    maxHeight: '78%', paddingBottom: 24,
+  },
+  modalHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingVertical: 18,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  modalTitle: { fontSize: 17, fontWeight: '700', color: '#FFF' },
+  searchRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginHorizontal: 16, marginVertical: 12,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderRadius: 12, paddingHorizontal: 14, height: 44,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+  },
+  searchInput: { flex: 1, color: '#FFF', fontSize: 15 },
+  cityItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: 20, paddingVertical: 13,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)',
+  },
+  cityItemText: { fontSize: 15, color: 'rgba(255,255,255,0.75)', fontWeight: '500' },
+  emptyList: { alignItems: 'center', paddingVertical: 40 },
+  emptyText: { color: 'rgba(255,255,255,0.3)', fontSize: 14 },
+
+  // ── Compare button ────────────────────────────────────────────────────────
   compareBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     height: 56, borderRadius: 28, backgroundColor: '#06B6D4', gap: 8, marginBottom: 24,
   },
   compareBtnText: { fontSize: 16, fontWeight: '700', color: '#000', letterSpacing: 0.5 },
+
+  // ── Results ───────────────────────────────────────────────────────────────
   compareRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 4 },
   compareCard: { flex: 1, alignItems: 'center', padding: 20 },
   compareCity: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.7)' },
@@ -393,8 +545,6 @@ const styles = StyleSheet.create({
   tipRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
   tipText: { flex: 1, fontSize: 12, color: 'rgba(255,255,255,0.45)', lineHeight: 17 },
   tipCond: { color: 'rgba(167,139,250,0.7)', fontWeight: '600' },
-
-  // No-profile nudge
   nudgeRow: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     marginTop: 16, padding: 14,
