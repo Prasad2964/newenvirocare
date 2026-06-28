@@ -27,7 +27,10 @@ function buildMapHtml(lat: number, lon: number, city: string): string {
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     html,body{width:100%;height:100%;overflow:hidden;background:#0A1520;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
-    #map{width:100%;height:100%}
+    #map{width:100%;height:100%;background:#0A1520}
+    /* Invert OSM tiles to get a dark map. AQI overlay lives in a custom pane
+       that sits outside .leaflet-tile-pane, so its colours are never inverted. */
+    .leaflet-tile-pane{filter:invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%)}
 
     .city-badge{
       position:fixed;top:14px;left:50%;transform:translateX(-50%);
@@ -109,12 +112,16 @@ function buildMapHtml(lat: number, lon: number, city: string): string {
       var map = L.map('map', { zoomControl: false, attributionControl: false })
                 .setView([${lat}, ${lon}], 9);
 
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_matter/{z}/{x}/{y}{r}.png', {
-        subdomains: 'abcd', maxZoom: 18
+      // OSM as base — reliable from any origin. CSS invert (above) makes it dark.
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 18, crossOrigin: true
       }).addTo(map);
 
+      // AQI overlay in a custom pane so the CSS invert filter never touches it.
+      map.createPane('aqi');
+      map.getPane('aqi').style.zIndex = 450;
       L.tileLayer('https://tiles.aqicn.org/tiles/usepa-aqi/{z}/{x}/{y}.png?token=demo', {
-        opacity: 0.72, maxZoom: 18
+        opacity: 0.75, maxZoom: 18, pane: 'aqi'
       }).addTo(map);
 
       L.control.zoom({ position: 'bottomright' }).addTo(map);
