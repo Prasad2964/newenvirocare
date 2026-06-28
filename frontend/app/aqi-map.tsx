@@ -105,27 +105,84 @@ function buildMapHtml(lat: number, lon: number, city: string): string {
   <div id="map-init-msg">Loading map tiles...</div>
 
   <script>
+    function aqiColor(v) {
+      if (v <= 50)  return '#00E400';
+      if (v <= 100) return '#FFFF00';
+      if (v <= 150) return '#FF7E00';
+      if (v <= 200) return '#FF0000';
+      if (v <= 300) return '#8F3F97';
+      return '#7E0023';
+    }
+    function aqiLabel(v) {
+      if (v <= 50)  return 'Good';
+      if (v <= 100) return 'Moderate';
+      if (v <= 150) return 'Unhealthy for Sensitive Groups';
+      if (v <= 200) return 'Unhealthy';
+      if (v <= 300) return 'Very Unhealthy';
+      return 'Hazardous';
+    }
+    function stationPopup(name, aqi) {
+      var c = aqiColor(aqi);
+      return '<div style="padding:8px 4px;min-width:160px">'
+        + '<div style="font-size:11px;color:rgba(255,255,255,0.45);margin-bottom:6px;font-weight:500;line-height:1.4">' + name + '</div>'
+        + '<div style="font-size:38px;font-weight:800;color:' + c + ';line-height:1;letter-spacing:-1px">' + aqi + '</div>'
+        + '<div style="font-size:11px;font-weight:700;color:' + c + ';margin-top:6px;text-transform:uppercase;letter-spacing:0.6px">' + aqiLabel(aqi) + '</div>'
+        + '</div>';
+    }
+
+    var map, stationGroup, moveTimer;
+
+    function loadStations() {
+      var b = map.getBounds();
+      var latlng = b.getSouth().toFixed(4) + ',' + b.getWest().toFixed(4)
+                 + ',' + b.getNorth().toFixed(4) + ',' + b.getEast().toFixed(4);
+      fetch('https://api.waqi.info/map/bounds/?latlng=' + latlng + '&token=demo')
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+          stationGroup.clearLayers();
+          if (res.status !== 'ok' || !Array.isArray(res.data)) return;
+          res.data.forEach(function(s) {
+            var aqi = parseInt(s.aqi);
+            if (isNaN(aqi) || aqi < 0) return;
+            var c = aqiColor(aqi);
+            L.circleMarker([s.lat, s.lon], {
+              radius: 13,
+              fillColor: c,
+              color: '#fff',
+              weight: 2,
+              opacity: 1,
+              fillOpacity: 0.88,
+              pane: 'aqi',
+            })
+            .bindPopup(stationPopup(s.station.name, aqi), { maxWidth: 240 })
+            .addTo(stationGroup);
+          });
+        })
+        .catch(function() {});
+    }
+
     function initMap() {
       var msg = document.getElementById('map-init-msg');
       if (msg) msg.style.display = 'none';
 
-      var map = L.map('map', { zoomControl: false, attributionControl: false })
-                .setView([${lat}, ${lon}], 9);
+      map = L.map('map', { zoomControl: false, attributionControl: false })
+              .setView([${lat}, ${lon}], 9);
 
       // OSM as base — reliable from any origin. CSS invert (above) makes it dark.
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 18, crossOrigin: true
+        maxZoom: 18, crossOrigin: true,
       }).addTo(map);
 
-      // AQI overlay in a custom pane so the CSS invert filter never touches it.
+      // Custom pane for all AQI content — sits above tiles but excluded from CSS invert.
       map.createPane('aqi');
       map.getPane('aqi').style.zIndex = 450;
-      L.tileLayer('https://tiles.aqicn.org/tiles/usepa-aqi/{z}/{x}/{y}.png?token=demo', {
-        opacity: 0.75, maxZoom: 18, pane: 'aqi'
-      }).addTo(map);
+
+      // Layer group for station markers (cleared and refilled on pan/zoom)
+      stationGroup = L.layerGroup([], { pane: 'aqi' }).addTo(map);
 
       L.control.zoom({ position: 'bottomright' }).addTo(map);
 
+      // User's city marker
       var pulseIcon = L.divIcon({
         html: '<div style="position:relative;width:20px;height:20px">'
             + '<div style="position:absolute;inset:0;border-radius:50%;background:rgba(74,222,128,0.25);animation:ring 1.8s ease-out infinite"></div>'
@@ -136,15 +193,22 @@ function buildMapHtml(lat: number, lon: number, city: string): string {
         iconSize: [20, 20],
         iconAnchor: [10, 10],
       });
-
-      L.marker([${lat}, ${lon}], { icon: pulseIcon }).addTo(map)
+      L.marker([${lat}, ${lon}], { icon: pulseIcon })
         .bindPopup(
           '<div style="padding:4px 2px">'
           + '<div style="font-weight:700;font-size:14px;color:#4ADE80;margin-bottom:2px">${city}</div>'
           + '<div style="font-size:12px;color:rgba(255,255,255,0.5)">Your location</div>'
           + '</div>'
         )
-        .openPopup();
+        .openPopup()
+        .addTo(map);
+
+      // Load stations for current view, then refresh on every pan/zoom (debounced)
+      loadStations();
+      map.on('moveend', function() {
+        clearTimeout(moveTimer);
+        moveTimer = setTimeout(loadStations, 500);
+      });
 
       setTimeout(function() { map.invalidateSize(); }, 500);
     }
