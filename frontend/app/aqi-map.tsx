@@ -158,7 +158,7 @@ function buildMapHtml(lat: number, lon: number, city: string, stations: Station[
       map.getPane('aqi').style.zIndex = 450;
 
       // WAQI AQI tile overlay (heatmap colours)
-      L.tileLayer('https://tiles.aqicn.org/tiles/usepa-aqi/{z}/{x}/{y}.png?token=demo', {
+      L.tileLayer('https://tiles.aqicn.org/tiles/usepa-aqi/{z}/{x}/{y}.png?token=cad3ebd3fa02891ce5c8e8b4b4fc2bd29d32514f', {
         opacity: 0.65, maxZoom: 18, pane: 'aqi',
       }).addTo(map);
 
@@ -241,9 +241,7 @@ export default function AqiMapScreen() {
       })
       .catch(() => setCoords({ lat: 20.5937, lon: 78.9629 }));
 
-    // Pre-fetch WAQI stations here (React Native / browser fetch — no CORS issue)
-    // The demo token supports the /search/ endpoint reliably
-    fetch(`https://api.waqi.info/search/?keyword=${query}&token=demo`)
+    fetch(`https://api.waqi.info/search/?keyword=${query}&token=cad3ebd3fa02891ce5c8e8b4b4fc2bd29d32514f`)
       .then(r => r.json())
       .then(data => {
         if (data.status === 'ok' && Array.isArray(data.data)) {
