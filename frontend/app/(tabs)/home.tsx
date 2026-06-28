@@ -11,7 +11,7 @@ import * as Location from 'expo-location';
 import { useAuth } from '../../src/context/AuthContext';
 import api from '../../src/utils/api';
 import { getAqiTheme, getRiskColor } from '../../src/utils/theme';
-import { sendAqiAlert, getPersonalizedThreshold, registerForPushNotifications, requestWebNotificationPermission, checkPredictiveAlerts } from '../../src/services/notifications';
+import { sendAqiAlert, getPersonalizedThreshold, registerForPushNotifications, requestWebNotificationPermission, checkPredictiveAlerts, checkCommunityAlerts } from '../../src/services/notifications';
 import { showToast } from '../../src/components/Toast';
 import BreathingOrb from '../../src/components/BreathingOrb';
 import GlassCard from '../../src/components/GlassCard';
@@ -192,23 +192,33 @@ export default function HomeScreen() {
       if (gam) setGamification(gam);
       if (exp) setExposure(exp);
 
-      // Predictive alerts — prescription-specific, rate-limited per alert type
       if (aqi) {
+        const pollutants = aqi.pollutants ?? {};
+        const envPayload = {
+          aqi: aqi.aqi,
+          humidity: aqi.weather?.humidity,
+          temperature: aqi.weather?.temperature,
+          pm25: pollutants.pm25,
+          pm10: pollutants.pm10,
+          no2: pollutants.no2,
+          so2: pollutants.so2,
+          co: pollutants.co,
+          o3: pollutants.o3,
+          city: aqi.city || activeCity,
+        };
+
+        // Prescription-specific predictive alerts (requires health profile)
         const hp = healthProfileRef.current;
-        const hasProfile = hp.conditions.length > 0 || hp.medications.length > 0 || hp.allergies.length > 0;
-        if (hasProfile) {
-          checkPredictiveAlerts(
-            {
-              aqi: aqi.aqi,
-              humidity: aqi.weather?.humidity,
-              temperature: aqi.weather?.temperature,
-              pm25: aqi.pollutants?.pm25,
-              no2: aqi.pollutants?.no2,
-              city: aqi.city || activeCity,
-            },
-            hp,
-          ).catch(() => {});
+        if (hp.conditions.length > 0 || hp.medications.length > 0 || hp.allergies.length > 0) {
+          checkPredictiveAlerts(envPayload, hp).catch(() => {});
         }
+
+        // Community alerts — fire for all users regardless of profile
+        checkCommunityAlerts(
+          aqi.aqi,
+          { pm25: pollutants.pm25, o3: pollutants.o3, so2: pollutants.so2, co: pollutants.co },
+          aqi.city || activeCity,
+        ).catch(() => {});
       }
 
       const threshold = getPersonalizedThreshold(conditionsRef.current);

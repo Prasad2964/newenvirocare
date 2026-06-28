@@ -178,7 +178,11 @@ export interface PredictiveEnv {
   humidity?: number;
   temperature?: number;
   pm25?: number;
+  pm10?: number;
   no2?: number;
+  so2?: number;
+  co?: number;
+  o3?: number;
   city: string;
 }
 
@@ -384,6 +388,134 @@ export async function checkPredictiveAlerts(
         `Humidity ${humidity}% in ${city} creates high mold spore levels, a known trigger for you. Take antihistamines and keep humidity below 60% indoors.`);
   }
 
+  // ── Clinical condition → pollutant map ───────────────────────────────────────
+  // Each entry: if condition matches, check specific pollutants at clinical thresholds.
+  // This runs on top of the medication-specific rules above.
+  const CONDITION_POLLUTANT_RULES: Array<{
+    keywords: string[];
+    rules: Array<{
+      key: keyof PredictiveEnv;
+      thr: number;
+      aged?: boolean;   // apply ageThr() reduction
+      type: string;
+      title: string;
+      body: (val: number, city: string) => string;
+    }>;
+  }> = [
+    {
+      keywords: ['asthma'],
+      rules: [
+        { key: 'pm25', thr: 25, aged: true, type: 'asthma_pm25',
+          title: 'Asthma — Fine Particle Alert',
+          body: (v, c) => `PM2.5 is ${v} μg/m³ in ${c}. Fine particles penetrate deep into airways and are a direct asthma trigger. Avoid outdoor activity and keep your inhaler accessible.` },
+        { key: 'o3', thr: 70, aged: true, type: 'asthma_o3',
+          title: 'Ozone Alert — Asthma Risk',
+          body: (v, c) => `Ground-level ozone is ${v} ppb in ${c}. Ozone is a potent asthma trigger — symptoms worsen 12–6 PM when ozone peaks. Stay indoors this afternoon.` },
+        { key: 'humidity', thr: 75, type: 'asthma_humidity',
+          title: 'High Humidity — Asthma Risk',
+          body: (v, c) => `Humidity at ${v}% in ${c} — moist air thickens mucus and worsens asthma symptoms. Use air conditioning and keep your rescue inhaler accessible.` },
+      ],
+    },
+    {
+      keywords: ['copd'],
+      rules: [
+        { key: 'pm25', thr: 15, aged: true, type: 'copd_pm25',
+          title: 'COPD — Particulate Alert',
+          body: (v, c) => `PM2.5 at ${v} μg/m³ in ${c}. Fine particles are above safe limits for COPD patients and worsen exacerbations. Stay indoors and use supplemental oxygen if prescribed.` },
+        { key: 'so2', thr: 20, type: 'copd_so2',
+          title: 'COPD — SO₂ Exposure Risk',
+          body: (v, c) => `Sulphur dioxide is ${v} ppb in ${c}. SO₂ directly triggers bronchospasm in COPD patients. Avoid all outdoor exposure.` },
+        { key: 'co', thr: 4, type: 'copd_co',
+          title: 'COPD — Carbon Monoxide Risk',
+          body: (v, c) => `CO levels are elevated in ${c}. Carbon monoxide reduces oxygen delivery to tissues and severely worsens COPD symptoms. Stay indoors and ventilate.` },
+      ],
+    },
+    {
+      keywords: ['heart', 'cardiac'],
+      rules: [
+        { key: 'pm25', thr: 12, aged: true, type: 'heart_pm25',
+          title: 'Heart Disease — PM2.5 Risk',
+          body: (v, c) => `PM2.5 is ${v} μg/m³ in ${c}. Fine particles are directly linked to cardiac events and arrhythmias. Avoid outdoor exertion — even short walks today carry elevated risk.` },
+        { key: 'no2', thr: 40, type: 'heart_no2',
+          title: 'Heart Disease — NO₂ Advisory',
+          body: (v, c) => `Nitrogen dioxide is ${v} ppb in ${c}. NO₂ increases risk of acute cardiovascular events. Stay in air-conditioned or filtered indoor air.` },
+        { key: 'co', thr: 3, type: 'heart_co',
+          title: 'Critical — Carbon Monoxide Risk',
+          body: (v, c) => `CO is elevated in ${c}. Carbon monoxide binds haemoglobin and directly impairs heart function — severe risk for cardiac patients. Stay indoors immediately.` },
+      ],
+    },
+    {
+      keywords: ['hypertens'],
+      rules: [
+        { key: 'no2', thr: 40, type: 'bp_no2',
+          title: 'Blood Pressure — NO₂ Alert',
+          body: (v, c) => `NO₂ is ${v} ppb in ${c}. Nitrogen dioxide exposure is clinically linked to acute blood pressure spikes. Monitor your BP today and avoid traffic congestion.` },
+        { key: 'pm25', thr: 25, aged: true, type: 'bp_pm25',
+          title: 'Blood Pressure — PM2.5 Risk',
+          body: (v, c) => `PM2.5 at ${v} μg/m³ in ${c} causes arterial inflammation which elevates blood pressure. Take your medication as scheduled and avoid outdoor activity.` },
+      ],
+    },
+    {
+      keywords: ['diabet'],
+      rules: [
+        { key: 'temperature', thr: 35, type: 'diab_heat',
+          title: 'Diabetes — Heat & Glucose Risk',
+          body: (v, c) => `${v}°C in ${c}. Heat impairs glucose metabolism and insulin absorption. Monitor blood sugar every 2 hours, stay hydrated, and avoid outdoor exertion.` },
+        { key: 'pm25', thr: 35, aged: true, type: 'diab_pm25',
+          title: 'Diabetes — Air Quality Risk',
+          body: (v, c) => `PM2.5 at ${v} μg/m³ in ${c}. Air pollution worsens insulin resistance in diabetic patients. Limit outdoor time today.` },
+      ],
+    },
+    {
+      keywords: ['allerg'],
+      rules: [
+        { key: 'pm10', thr: 50, type: 'allergy_pm10',
+          title: 'Allergy — Pollen & Dust Elevated',
+          body: (v, c) => `PM10 (includes pollen and dust) is ${v} μg/m³ in ${c}. Close windows, take your antihistamines, and avoid outdoor activity during peak hours.` },
+        { key: 'o3', thr: 60, type: 'allergy_o3',
+          title: 'Allergy — Ozone Worsening Risk',
+          body: (v, c) => `Ozone is ${v} ppb in ${c}. Combined with airborne allergens, ozone inflames the nasal lining and worsens allergic rhinitis. Stay indoors during afternoon hours.` },
+      ],
+    },
+    {
+      keywords: ['pregnan'],
+      rules: [
+        { key: 'pm25', thr: 12, aged: false, type: 'preg_pm25',
+          title: 'Pregnancy — Fine Particle Advisory',
+          body: (v, c) => `PM2.5 is ${v} μg/m³ in ${c}. Fine particle exposure during pregnancy is linked to preterm birth and reduced foetal lung development. Stay indoors.` },
+        { key: 'no2', thr: 30, type: 'preg_no2',
+          title: 'Pregnancy — NO₂ Exposure Risk',
+          body: (v, c) => `NO₂ is ${v} ppb in ${c}. Nitrogen dioxide during pregnancy is associated with developmental effects. Avoid traffic-heavy outdoor environments.` },
+        { key: 'co', thr: 2, type: 'preg_co',
+          title: 'Pregnancy — CO Exposure Alert',
+          body: (v, c) => `CO is elevated in ${c}. Carbon monoxide crosses the placenta. Any CO exposure during pregnancy should be avoided immediately.` },
+      ],
+    },
+    {
+      keywords: ['lung disease', 'bronchitis', 'pulmonary', 'fibrosis'],
+      rules: [
+        { key: 'so2', thr: 15, type: 'lung_so2',
+          title: 'Lung Disease — SO₂ Alert',
+          body: (v, c) => `SO₂ is ${v} ppb in ${c}. Sulphur dioxide directly irritates the respiratory lining and is especially harmful for chronic lung conditions. Stay indoors.` },
+        { key: 'o3', thr: 60, type: 'lung_o3',
+          title: 'Lung Disease — Ozone Risk',
+          body: (v, c) => `Ozone is ${v} ppb in ${c}. Ozone causes oxidative damage to lung tissue. Patients with lung disease should avoid outdoor activity during afternoon hours.` },
+      ],
+    },
+  ];
+
+  const envRecord = env as Record<string, number>;
+  for (const mapping of CONDITION_POLLUTANT_RULES) {
+    if (!hasCond(conditions, ...mapping.keywords)) continue;
+    for (const rule of mapping.rules) {
+      const val = envRecord[rule.key] ?? 0;
+      const threshold = rule.aged ? ageThr(rule.thr, age) : rule.thr;
+      if (val > threshold) {
+        await consider(rule.type, rule.title, rule.body(val, city));
+      }
+    }
+  }
+
   // ── Condition-level fallbacks (only fire if no medication-specific alert did) ─
   if (hasCond(conditions, 'pregnan')) {
     if (aqi > ageThr(60, age))
@@ -416,6 +548,77 @@ export async function checkPredictiveAlerts(
     try {
       await api.post('/api/notifications/log', {
         type: 'predictive_alert',
+        title: alert.title,
+        message: alert.body,
+      });
+    } catch {}
+  }
+}
+
+// ─── Community alerts — fire for ALL users regardless of health profile ───────
+// Covers AQI thresholds and pollutant spikes that affect the general public.
+export async function checkCommunityAlerts(
+  aqi: number,
+  pollutants: { pm25?: number; o3?: number; so2?: number; co?: number },
+  city: string,
+): Promise<void> {
+  const pending: Array<{ type: string; title: string; body: string }> = [];
+
+  async function consider(type: string, title: string, body: string) {
+    if (await canFirePredictive(type)) pending.push({ type, title, body });
+  }
+
+  // AQI tier alerts — mutually exclusive, fire the worst tier
+  if (aqi > 300) {
+    await consider('community_hazardous',
+      `HAZARDOUS Air Quality — ${city}`,
+      `AQI ${aqi} is in the HAZARDOUS range. All residents must stay indoors immediately. Close all windows, use air purifiers, and avoid any outdoor exposure.`);
+  } else if (aqi > 200) {
+    await consider('community_very_unhealthy',
+      `Very Unhealthy Air — ${city}`,
+      `AQI ${aqi} — everyone should avoid outdoor activity. Children, elderly and anyone with a health condition must stay indoors. Wear N95 if you must go out.`);
+  } else if (aqi > 150) {
+    await consider('community_unhealthy',
+      `Unhealthy Air Quality — ${city}`,
+      `AQI ${aqi} — reduce outdoor activity. Sensitive groups (children, elderly, respiratory and cardiac conditions) should stay indoors. General public should limit exertion.`);
+  } else if (aqi > 100) {
+    await consider('community_sensitive',
+      `Air Quality Alert — ${city}`,
+      `AQI ${aqi} is unhealthy for sensitive groups. Children and elderly should limit outdoor time. Others can exercise with caution.`);
+  }
+
+  // Pollutant-specific community alerts (independent of AQI tier)
+  const { pm25 = 0, o3 = 0, so2 = 0, co = 0 } = pollutants;
+
+  if (pm25 > 55)
+    await consider('community_pm25_very_high',
+      `Fine Particle Warning — ${city}`,
+      `PM2.5 is very high (${pm25} μg/m³) in ${city}. Fine particles at this level affect everyone's lungs. Wear an N95 mask if outdoors and limit exposure time.`);
+
+  if (o3 > 100)
+    await consider('community_o3_high',
+      `Ozone Advisory — ${city}`,
+      `Ground-level ozone is ${o3} ppb in ${city} — above safe limits. Avoid outdoor activity between 12–6 PM when ozone peaks. Vulnerable groups should stay indoors.`);
+
+  if (so2 > 75)
+    await consider('community_so2_high',
+      `SO₂ Health Warning — ${city}`,
+      `Sulphur dioxide is elevated (${so2} ppb) in ${city}. Can cause throat and lung irritation in everyone. People with respiratory conditions face serious risk.`);
+
+  if (co > 9)
+    await consider('community_co_high',
+      `Carbon Monoxide Warning — ${city}`,
+      `CO levels are dangerously elevated in ${city}. Carbon monoxide is odourless and reduces oxygen to your brain and heart. Stay indoors and ventilate immediately.`);
+
+  for (const alert of pending) {
+    await sendLocalNotification(alert.title, alert.body, {
+      type: 'community_alert',
+      alertType: alert.type,
+    });
+    await markPredictiveFired(alert.type);
+    try {
+      await api.post('/api/notifications/log', {
+        type: 'community_alert',
         title: alert.title,
         message: alert.body,
       });

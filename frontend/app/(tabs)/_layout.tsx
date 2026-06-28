@@ -24,6 +24,15 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="community"
+        options={{
+          title: 'Community',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="earth" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="travel"
         options={{
           title: 'Travel',
