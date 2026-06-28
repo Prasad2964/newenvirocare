@@ -173,117 +173,241 @@ async function markPredictiveFired(alertType: string) {
   } catch {}
 }
 
-interface PredictiveEnv {
+export interface PredictiveEnv {
   aqi: number;
   humidity?: number;
   temperature?: number;
   pm25?: number;
+  no2?: number;
   city: string;
 }
 
+export interface HealthProfile {
+  conditions: string[];
+  medications: string[];
+  allergies: string[];
+  age?: number | null;
+  notes?: string | null;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function hasCond(conditions: string[], ...keys: string[]): boolean {
+  const cl = conditions.map(s => s.toLowerCase());
+  return keys.some(k => cl.some(c => c.includes(k)));
+}
+
+function hasMed(medications: string[], ...names: string[]): boolean {
+  const ml = medications.map(m => m.toLowerCase());
+  return names.some(n => ml.some(m => m.includes(n.toLowerCase())));
+}
+
+function hasAllergen(allergies: string[], ...keys: string[]): boolean {
+  const al = allergies.map(a => a.toLowerCase());
+  return keys.some(k => al.some(a => a.includes(k)));
+}
+
+// Extract systolic BP from raw OCR notes (e.g. "BP: 150/90" → 150)
+function parseSystolicBP(notes: string): number | null {
+  const m = notes.match(/\bbp[:\s]+(\d{2,3})\/\d{2,3}/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+// Extract fasting glucose/sugar from OCR notes (e.g. "Sugar: 180" → 180)
+function parseGlucose(notes: string): number | null {
+  const m = notes.match(/\b(?:sugar|glucose|fbs|rbs)[:\s]+([\d.]+)/i);
+  return m ? parseFloat(m[1]) : null;
+}
+
+// Lower threshold for elderly (≥65) and children (≤12)
+function ageThr(base: number, age?: number | null): number {
+  if (!age) return base;
+  if (age >= 65) return Math.round(base * 0.75);
+  if (age <= 12) return Math.round(base * 0.80);
+  return base;
+}
+
+// ── Main predictive engine ────────────────────────────────────────────────────
+
 export async function checkPredictiveAlerts(
   env: PredictiveEnv,
-  conditions: string[],
+  profile: HealthProfile,
 ): Promise<void> {
-  if (!conditions.length) return;
+  const { conditions, medications, allergies, age, notes } = profile;
+  if (!conditions.length && !medications.length && !allergies.length) return;
 
-  const c = conditions.map(s => s.toLowerCase());
-  const { aqi, humidity = 0, temperature = 25, pm25 = 0, city } = env;
+  const { aqi, humidity = 0, temperature = 25, pm25 = 0, no2 = 0, city } = env;
 
-  const isRespiratory = c.some(s =>
-    ['asthma', 'copd', 'lung disease', 'bronchitis'].some(k => s.includes(k))
-  );
-  const isCardiac = c.some(s => s.includes('heart'));
-  const isAllergic = c.some(s => s.includes('allerg'));
-  const isPregnant = c.some(s => s.includes('pregnan'));
-  const isDiabetic = c.some(s => s.includes('diabet'));
-  const isHypertensive = c.some(s => s.includes('hypertens'));
+  // Parse OCR-extracted health indicators from prescription notes
+  const systolicBP = notes ? parseSystolicBP(notes) : null;
+  const glucose = notes ? parseGlucose(notes) : null;
 
-  const alerts: Array<{ type: string; title: string; body: string }> = [];
+  const pending: Array<{ type: string; title: string; body: string }> = [];
 
-  if (isRespiratory) {
-    if (aqi > 80 && await canFirePredictive('resp_aqi')) {
-      alerts.push({
-        type: 'resp_aqi',
-        title: 'Respiratory Risk Alert',
-        body: `AQI ${aqi} in ${city} is elevated for your condition. Keep your inhaler accessible and limit time outdoors.`,
-      });
-    }
-    if (pm25 > 35 && await canFirePredictive('resp_pm25')) {
-      alerts.push({
-        type: 'resp_pm25',
-        title: 'Fine Particulate Warning',
-        body: `PM2.5 is ${pm25} μg/m³ in ${city} — well above safe limits. Avoid outdoor activity and wear an N95 if you must go out.`,
-      });
-    }
-    if (humidity > 75 && await canFirePredictive('resp_humidity')) {
-      alerts.push({
-        type: 'resp_humidity',
-        title: 'High Humidity — Breathing Risk',
-        body: `Humidity is ${humidity}% in ${city}. High moisture can worsen respiratory symptoms. Use air conditioning indoors.`,
-      });
-    }
+  async function consider(type: string, title: string, body: string) {
+    if (await canFirePredictive(type)) pending.push({ type, title, body });
   }
 
-  if (isCardiac) {
-    if (aqi > 80 && await canFirePredictive('cardiac_aqi')) {
-      alerts.push({
-        type: 'cardiac_aqi',
-        title: 'Cardiovascular Alert',
-        body: `AQI ${aqi} in ${city} increases cardiovascular strain. Avoid strenuous outdoor activity.`,
-      });
-    }
-    if (temperature > 38 && await canFirePredictive('cardiac_heat')) {
-      alerts.push({
-        type: 'cardiac_heat',
-        title: 'Heat + Pollution Risk',
-        body: `${temperature}°C with AQI ${aqi} in ${city}. Extreme heat combined with poor air quality is dangerous — stay indoors.`,
-      });
-    }
+  // ── Rescue inhalers (Salbutamol / Ventolin / Albuterol) ──────────────────
+  if (hasMed(medications, 'salbutamol', 'ventolin', 'albuterol', 'levosalbutamol')) {
+    const thr = ageThr(65, age);
+    if (aqi > thr)
+      await consider('med_rescue_inhaler_aqi',
+        'Rescue Inhaler Advisory',
+        `AQI ${aqi} in ${city} can trigger bronchospasm. Carry your rescue inhaler and use it at the first sign of wheeze or tightness.`);
+    if (pm25 > ageThr(25, age))
+      await consider('med_rescue_inhaler_pm25',
+        'Fine Particles — Inhaler Needed',
+        `PM2.5 is ${pm25} μg/m³ in ${city}. Particulate levels at this concentration often increase inhaler use. Have it on hand.`);
   }
 
-  if (isAllergic) {
-    if (humidity > 70 && await canFirePredictive('allergy_mold')) {
-      alerts.push({
-        type: 'allergy_mold',
-        title: 'High Mold & Allergen Risk',
-        body: `Humidity at ${humidity}% in ${city} creates high mold spore and allergen conditions. Take antihistamines and keep windows closed.`,
-      });
-    }
+  // ── Controller inhalers (Budesonide / Fluticasone / Seretide / Symbicort) ─
+  if (hasMed(medications, 'budesonide', 'fluticasone', 'seretide', 'symbicort', 'beclomethasone')) {
+    if (aqi > ageThr(80, age))
+      await consider('med_controller_inhaler',
+        'Controller Inhaler Reminder',
+        `AQI ${aqi} in ${city} — do not skip your daily controller inhaler dose today. Skipping during poor air quality increases flare risk.`);
   }
 
-  if (isPregnant) {
-    if (aqi > 60 && await canFirePredictive('pregnancy_aqi')) {
-      alerts.push({
-        type: 'pregnancy_aqi',
-        title: 'Pregnancy Air Quality Advisory',
-        body: `AQI ${aqi} in ${city}. Air pollution during pregnancy can affect foetal development. Minimise outdoor exposure today.`,
-      });
-    }
+  // ── COPD-specific inhalers (Tiotropium / Ipratropium / Theophylline) ──────
+  if (hasMed(medications, 'tiotropium', 'ipratropium', 'theophylline', 'aminophylline')) {
+    const thr = ageThr(60, age);
+    if (aqi > thr)
+      await consider('med_copd_inhaler',
+        'COPD Flare Risk',
+        `AQI ${aqi} in ${city} — patients on COPD maintenance therapy are at high risk. Use your prescribed inhaler and avoid going outdoors.`);
   }
 
-  if (isDiabetic) {
-    if (temperature > 35 && await canFirePredictive('diabetes_heat')) {
-      alerts.push({
-        type: 'diabetes_heat',
-        title: 'Heat Advisory — Glucose Risk',
-        body: `${temperature}°C in ${city}. Extreme heat affects insulin absorption. Stay hydrated and monitor blood glucose closely.`,
-      });
-    }
+  // ── Insulin (heat degrades it; extreme heat affects absorption) ───────────
+  if (hasMed(medications, 'insulin')) {
+    const glucoseNote = glucose ? ` Your recent glucose reading was ${glucose} mg/dL.` : '';
+    if (temperature > 36)
+      await consider('med_insulin_heat',
+        'Insulin Storage Alert',
+        `${temperature}°C in ${city} — heat above 36°C degrades insulin potency. Keep your insulin refrigerated and check vials for cloudiness.${glucoseNote}`);
+    // Poorly controlled glucose + any heat = double risk
+    if (glucose && glucose > 200 && temperature > 30)
+      await consider('med_insulin_glucose_heat',
+        'Glucose Control Risk',
+        `Your recent glucose (${glucose} mg/dL) is elevated. At ${temperature}°C in ${city}, heat stress further impairs glucose control. Monitor closely today.`);
   }
 
-  if (isHypertensive) {
-    if (aqi > 100 && await canFirePredictive('bp_aqi')) {
-      alerts.push({
-        type: 'bp_aqi',
-        title: 'Blood Pressure Alert',
-        body: `AQI ${aqi} in ${city} can raise blood pressure. Monitor your BP today and avoid outdoor exertion.`,
-      });
-    }
+  // ── Metformin (heat → lactic acidosis risk) ───────────────────────────────
+  if (hasMed(medications, 'metformin')) {
+    if (temperature > 35)
+      await consider('med_metformin_heat',
+        'Metformin Heat Advisory',
+        `${temperature}°C in ${city} — dehydration on Metformin raises lactic acidosis risk. Drink water frequently and avoid outdoor exertion in this heat.`);
   }
 
-  // Fire alerts and mark them (fire all unique alerts, not just one)
-  for (const alert of alerts) {
+  // ── Anticoagulants (Warfarin / Clopidogrel — pollution raises clot risk) ──
+  if (hasMed(medications, 'warfarin', 'clopidogrel', 'rivaroxaban', 'apixaban', 'dabigatran')) {
+    if (aqi > 120)
+      await consider('med_anticoag_smog',
+        'Anticoagulant Advisory',
+        `Heavy smog (AQI ${aqi}) in ${city} increases platelet aggregation. Patients on blood thinners should avoid prolonged outdoor exposure and report any unusual symptoms.`);
+  }
+
+  // ── Antihypertensives (Amlodipine / Lisinopril / Metoprolol / Losartan) ──
+  if (hasMed(medications, 'amlodipine', 'lisinopril', 'metoprolol', 'losartan', 'atenolol',
+    'telmisartan', 'ramipril', 'enalapril', 'valsartan')) {
+    // Use OCR-extracted BP to personalise the threshold and message
+    const bpNote = systolicBP
+      ? ` Your last recorded BP was ${systolicBP} mmHg —`
+      : '';
+    const thr = systolicBP && systolicBP > 140 ? ageThr(70, age) : ageThr(95, age);
+    if (aqi > thr)
+      await consider('med_antihypert_aqi',
+        'Blood Pressure Alert',
+        `AQI ${aqi} in ${city} can cause acute BP elevation.${bpNote} take your antihypertensive medication as scheduled and avoid strenuous activity.`);
+    if (temperature > 38)
+      await consider('med_antihypert_heat',
+        'Heat Affects BP Medication',
+        `${temperature}°C in ${city} — extreme heat can reduce the effectiveness of some antihypertensives. Monitor your blood pressure today.`);
+  }
+
+  // ── Montelukast (allergy + asthma controller) ────────────────────────────
+  if (hasMed(medications, 'montelukast')) {
+    if (humidity > 65)
+      await consider('med_montelukast_humidity',
+        'Allergen Levels Rising',
+        `Humidity at ${humidity}% in ${city} elevates mold spores and pollen. Take your Montelukast as prescribed and keep windows closed.`);
+    if (aqi > ageThr(70, age))
+      await consider('med_montelukast_aqi',
+        'Asthma-Allergy Dual Trigger',
+        `AQI ${aqi} combined with allergen-prone air quality in ${city}. Montelukast may not provide full protection at these pollution levels — limit outdoor time.`);
+  }
+
+  // ── Antihistamines (Cetirizine / Fexofenadine / Loratadine) ─────────────
+  if (hasMed(medications, 'cetirizine', 'fexofenadine', 'loratadine', 'desloratadine', 'levocetirizine')) {
+    if (humidity > 70)
+      await consider('med_antihistamine_humidity',
+        'Take Your Antihistamine Today',
+        `Humidity ${humidity}% in ${city} raises airborne allergen concentrations. Take your antihistamine at the same time daily for best effect.`);
+  }
+
+  // ── Corticosteroids (Prednisolone / Dexamethasone — immunosuppression) ────
+  if (hasMed(medications, 'prednisolone', 'prednisone', 'dexamethasone', 'methylprednisolone')) {
+    if (aqi > ageThr(70, age))
+      await consider('med_steroid_aqi',
+        'Immunosuppression Risk',
+        `AQI ${aqi} in ${city} — corticosteroids suppress immune response, making respiratory infections more likely in polluted conditions. Avoid outdoor exposure.`);
+  }
+
+  // ── Levothyroxine (thyroid — heat sensitivity) ────────────────────────────
+  if (hasMed(medications, 'levothyroxine', 'thyroxine', 'eltroxin')) {
+    if (temperature > 38)
+      await consider('med_levothyroxine_heat',
+        'Thyroid Medication — Heat Advisory',
+        `${temperature}°C in ${city} — extreme heat can exacerbate hyperthyroid symptoms while on Levothyroxine. Monitor your heart rate and avoid exertion.`);
+  }
+
+  // ── Allergen-specific (from actual allergen list in profile) ─────────────
+  if (hasAllergen(allergies, 'pollen', 'grass pollen', 'tree pollen', 'ragweed')) {
+    if (humidity > 60)
+      await consider('allergen_pollen_humidity',
+        'Pollen Alert — Your Allergen',
+        `Humidity ${humidity}% in ${city} activates pollen dispersal. You are sensitised to pollen — take your allergy medication and minimise outdoor exposure.`);
+  }
+
+  if (hasAllergen(allergies, 'dust mite', 'dust mites')) {
+    if (humidity > 70)
+      await consider('allergen_dustmite_humidity',
+        'Dust Mite Conditions Active',
+        `Humidity ${humidity}% in ${city} — dust mites multiply rapidly above 70% humidity. Use your air purifier, wash bedding in hot water, and keep your space ventilated.`);
+  }
+
+  if (hasAllergen(allergies, 'mold', 'mold spores', 'mould')) {
+    if (humidity > 75)
+      await consider('allergen_mold_humidity',
+        'Mold Spore Risk — Your Allergen',
+        `Humidity ${humidity}% in ${city} creates high mold spore levels, a known trigger for you. Take antihistamines and keep humidity below 60% indoors.`);
+  }
+
+  // ── Condition-level fallbacks (only fire if no medication-specific alert did) ─
+  if (hasCond(conditions, 'pregnan')) {
+    if (aqi > ageThr(60, age))
+      await consider('cond_pregnancy_aqi',
+        'Pregnancy Air Quality Advisory',
+        `AQI ${aqi} in ${city}. Air pollution during pregnancy is linked to low birth weight and preterm birth. Minimise outdoor exposure today.`);
+  }
+
+  if (hasCond(conditions, 'diabet') && !hasMed(medications, 'insulin', 'metformin')) {
+    if (temperature > 35)
+      await consider('cond_diabetes_heat',
+        'Heat Advisory — Glucose Risk',
+        `${temperature}°C in ${city}. Heat stress affects glucose metabolism. Monitor your blood sugar closely and stay well hydrated.`);
+  }
+
+  if (hasCond(conditions, 'heart') && !hasMed(medications, 'warfarin', 'clopidogrel', 'amlodipine', 'metoprolol')) {
+    if (aqi > ageThr(80, age))
+      await consider('cond_cardiac_aqi',
+        'Cardiovascular Alert',
+        `AQI ${aqi} in ${city} increases risk of acute cardiac events. Avoid strenuous outdoor activity and stay in air-conditioned spaces.`);
+  }
+
+  // ── Fire all pending alerts ───────────────────────────────────────────────
+  for (const alert of pending) {
     await sendLocalNotification(alert.title, alert.body, {
       type: 'predictive_alert',
       alertType: alert.type,

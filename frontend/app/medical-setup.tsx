@@ -88,7 +88,13 @@ export default function MedicalSetupScreen() {
   async function saveAndContinue() {
     setStep('saving');
     try {
-      await api.post('/api/health-profile', { conditions, medications, allergies });
+      await api.post('/api/health-profile', {
+        conditions,
+        medications,
+        allergies,
+        // Preserve raw OCR text so predictive alerts can parse BP/glucose indicators
+        notes: ocrNotes || null,
+      });
       showToast('Health profile saved!', 'success');
     } catch {
       // Non-blocking — profile will be editable later in the Profile tab

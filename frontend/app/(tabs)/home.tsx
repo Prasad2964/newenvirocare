@@ -80,6 +80,9 @@ export default function HomeScreen() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const appState = useRef(AppState.currentState);
   const conditionsRef = useRef<string[]>([]);
+  const healthProfileRef = useRef<{ conditions: string[]; medications: string[]; allergies: string[]; age?: number | null; notes?: string | null }>({
+    conditions: [], medications: [], allergies: [],
+  });
   const savedSettingsRef = useRef<any>(null);
 
   // Merges default_city into existing settings to avoid resetting user's other prefs.
@@ -165,7 +168,16 @@ export default function HomeScreen() {
       ]);
       setAqiData(aqi);
       if (risk) setRiskData(risk);
-      if (profile?.conditions) conditionsRef.current = profile.conditions;
+      if (profile) {
+        conditionsRef.current = profile.conditions || [];
+        healthProfileRef.current = {
+          conditions: profile.conditions || [],
+          medications: profile.medications || [],
+          allergies: profile.allergies || [],
+          age: profile.age ?? null,
+          notes: profile.notes ?? null,
+        };
+      }
 
       api.post('/api/activity', {
         type: 'aqi_check', city: activeCity,
@@ -180,18 +192,23 @@ export default function HomeScreen() {
       if (gam) setGamification(gam);
       if (exp) setExposure(exp);
 
-      // Predictive alerts — runs after every data load, rate-limited inside
-      if (aqi && conditionsRef.current.length > 0) {
-        checkPredictiveAlerts(
-          {
-            aqi: aqi.aqi,
-            humidity: aqi.weather?.humidity,
-            temperature: aqi.weather?.temperature,
-            pm25: aqi.pollutants?.pm25,
-            city: aqi.city || activeCity,
-          },
-          conditionsRef.current,
-        ).catch(() => {});
+      // Predictive alerts — prescription-specific, rate-limited per alert type
+      if (aqi) {
+        const hp = healthProfileRef.current;
+        const hasProfile = hp.conditions.length > 0 || hp.medications.length > 0 || hp.allergies.length > 0;
+        if (hasProfile) {
+          checkPredictiveAlerts(
+            {
+              aqi: aqi.aqi,
+              humidity: aqi.weather?.humidity,
+              temperature: aqi.weather?.temperature,
+              pm25: aqi.pollutants?.pm25,
+              no2: aqi.pollutants?.no2,
+              city: aqi.city || activeCity,
+            },
+            hp,
+          ).catch(() => {});
+        }
       }
 
       const threshold = getPersonalizedThreshold(conditionsRef.current);
