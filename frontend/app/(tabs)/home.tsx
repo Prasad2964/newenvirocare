@@ -11,7 +11,7 @@ import * as Location from 'expo-location';
 import { useAuth } from '../../src/context/AuthContext';
 import api from '../../src/utils/api';
 import { getAqiTheme, getRiskColor } from '../../src/utils/theme';
-import { sendAqiAlert, getPersonalizedThreshold, registerForPushNotifications, requestWebNotificationPermission } from '../../src/services/notifications';
+import { sendAqiAlert, getPersonalizedThreshold, registerForPushNotifications, requestWebNotificationPermission, checkPredictiveAlerts } from '../../src/services/notifications';
 import { showToast } from '../../src/components/Toast';
 import BreathingOrb from '../../src/components/BreathingOrb';
 import GlassCard from '../../src/components/GlassCard';
@@ -179,6 +179,20 @@ export default function HomeScreen() {
       ]);
       if (gam) setGamification(gam);
       if (exp) setExposure(exp);
+
+      // Predictive alerts — runs after every data load, rate-limited inside
+      if (aqi && conditionsRef.current.length > 0) {
+        checkPredictiveAlerts(
+          {
+            aqi: aqi.aqi,
+            humidity: aqi.weather?.humidity,
+            temperature: aqi.weather?.temperature,
+            pm25: aqi.pollutants?.pm25,
+            city: aqi.city || activeCity,
+          },
+          conditionsRef.current,
+        ).catch(() => {});
+      }
 
       const threshold = getPersonalizedThreshold(conditionsRef.current);
       if (aqi?.aqi >= threshold) {

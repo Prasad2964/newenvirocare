@@ -151,6 +151,154 @@ export async function sendAqiAlert(
   } catch {}
 }
 
+// ─── Predictive alerts based on health + live environment ────────────────────
+// Rate limit: each alert type fires at most once every 4 hours.
+const PREDICTIVE_KEY_PREFIX = 'predictive_last_';
+const PREDICTIVE_COOLDOWN_MS = 4 * 60 * 60 * 1000;
+
+async function canFirePredictive(alertType: string): Promise<boolean> {
+  try {
+    const key = PREDICTIVE_KEY_PREFIX + alertType;
+    const last = await AsyncStorage.getItem(key);
+    if (!last) return true;
+    return Date.now() - parseInt(last, 10) > PREDICTIVE_COOLDOWN_MS;
+  } catch {
+    return true;
+  }
+}
+
+async function markPredictiveFired(alertType: string) {
+  try {
+    await AsyncStorage.setItem(PREDICTIVE_KEY_PREFIX + alertType, String(Date.now()));
+  } catch {}
+}
+
+interface PredictiveEnv {
+  aqi: number;
+  humidity?: number;
+  temperature?: number;
+  pm25?: number;
+  city: string;
+}
+
+export async function checkPredictiveAlerts(
+  env: PredictiveEnv,
+  conditions: string[],
+): Promise<void> {
+  if (!conditions.length) return;
+
+  const c = conditions.map(s => s.toLowerCase());
+  const { aqi, humidity = 0, temperature = 25, pm25 = 0, city } = env;
+
+  const isRespiratory = c.some(s =>
+    ['asthma', 'copd', 'lung disease', 'bronchitis'].some(k => s.includes(k))
+  );
+  const isCardiac = c.some(s => s.includes('heart'));
+  const isAllergic = c.some(s => s.includes('allerg'));
+  const isPregnant = c.some(s => s.includes('pregnan'));
+  const isDiabetic = c.some(s => s.includes('diabet'));
+  const isHypertensive = c.some(s => s.includes('hypertens'));
+
+  const alerts: Array<{ type: string; title: string; body: string }> = [];
+
+  if (isRespiratory) {
+    if (aqi > 80 && await canFirePredictive('resp_aqi')) {
+      alerts.push({
+        type: 'resp_aqi',
+        title: 'Respiratory Risk Alert',
+        body: `AQI ${aqi} in ${city} is elevated for your condition. Keep your inhaler accessible and limit time outdoors.`,
+      });
+    }
+    if (pm25 > 35 && await canFirePredictive('resp_pm25')) {
+      alerts.push({
+        type: 'resp_pm25',
+        title: 'Fine Particulate Warning',
+        body: `PM2.5 is ${pm25} μg/m³ in ${city} — well above safe limits. Avoid outdoor activity and wear an N95 if you must go out.`,
+      });
+    }
+    if (humidity > 75 && await canFirePredictive('resp_humidity')) {
+      alerts.push({
+        type: 'resp_humidity',
+        title: 'High Humidity — Breathing Risk',
+        body: `Humidity is ${humidity}% in ${city}. High moisture can worsen respiratory symptoms. Use air conditioning indoors.`,
+      });
+    }
+  }
+
+  if (isCardiac) {
+    if (aqi > 80 && await canFirePredictive('cardiac_aqi')) {
+      alerts.push({
+        type: 'cardiac_aqi',
+        title: 'Cardiovascular Alert',
+        body: `AQI ${aqi} in ${city} increases cardiovascular strain. Avoid strenuous outdoor activity.`,
+      });
+    }
+    if (temperature > 38 && await canFirePredictive('cardiac_heat')) {
+      alerts.push({
+        type: 'cardiac_heat',
+        title: 'Heat + Pollution Risk',
+        body: `${temperature}°C with AQI ${aqi} in ${city}. Extreme heat combined with poor air quality is dangerous — stay indoors.`,
+      });
+    }
+  }
+
+  if (isAllergic) {
+    if (humidity > 70 && await canFirePredictive('allergy_mold')) {
+      alerts.push({
+        type: 'allergy_mold',
+        title: 'High Mold & Allergen Risk',
+        body: `Humidity at ${humidity}% in ${city} creates high mold spore and allergen conditions. Take antihistamines and keep windows closed.`,
+      });
+    }
+  }
+
+  if (isPregnant) {
+    if (aqi > 60 && await canFirePredictive('pregnancy_aqi')) {
+      alerts.push({
+        type: 'pregnancy_aqi',
+        title: 'Pregnancy Air Quality Advisory',
+        body: `AQI ${aqi} in ${city}. Air pollution during pregnancy can affect foetal development. Minimise outdoor exposure today.`,
+      });
+    }
+  }
+
+  if (isDiabetic) {
+    if (temperature > 35 && await canFirePredictive('diabetes_heat')) {
+      alerts.push({
+        type: 'diabetes_heat',
+        title: 'Heat Advisory — Glucose Risk',
+        body: `${temperature}°C in ${city}. Extreme heat affects insulin absorption. Stay hydrated and monitor blood glucose closely.`,
+      });
+    }
+  }
+
+  if (isHypertensive) {
+    if (aqi > 100 && await canFirePredictive('bp_aqi')) {
+      alerts.push({
+        type: 'bp_aqi',
+        title: 'Blood Pressure Alert',
+        body: `AQI ${aqi} in ${city} can raise blood pressure. Monitor your BP today and avoid outdoor exertion.`,
+      });
+    }
+  }
+
+  // Fire alerts and mark them (fire all unique alerts, not just one)
+  for (const alert of alerts) {
+    await sendLocalNotification(alert.title, alert.body, {
+      type: 'predictive_alert',
+      alertType: alert.type,
+    });
+    await markPredictiveFired(alert.type);
+    try {
+      await api.post('/api/notifications/log', {
+        type: 'predictive_alert',
+        title: alert.title,
+        message: alert.body,
+      });
+    } catch {}
+  }
+}
+
 export async function sendRoutineSuggestion(activity: string, suggestion: string) {
   await sendLocalNotification(`Routine Update: ${activity}`, suggestion, { type: 'routine_suggestion' });
 }

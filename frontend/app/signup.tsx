@@ -31,11 +31,7 @@ export default function SignupScreen() {
     try {
       await signup(name.trim(), email.trim(), password);
       showToast('Account created! Welcome aboard!', 'success');
-      if (isFirstLaunch) {
-        router.replace('/permissions');
-      } else {
-        router.replace('/(tabs)/home');
-      }
+      router.replace('/medical-setup');
     } catch (e: any) {
       showToast(e.message || 'Could not create account', 'error');
     } finally {
