@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  RefreshControl, AppState, Platform,
+  RefreshControl, AppState, Platform, ActivityIndicator, TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,39 +20,41 @@ import PressableScale from '../../src/components/PressableScale';
 import { SkeletonDashboard } from '../../src/components/Skeleton';
 import { COLORS, FONTS, FONT_SIZE, SPACING, RADIUS, getAqiTheme as getTokenTheme } from '../../src/utils/tokens';
 
-async function detectUserCity(fallback: string): Promise<string> {
-  // Try IP geolocation first — works on web without any permission
+// GPS first, IP geo as fallback. Returns null city when denied/failed.
+async function resolveLocation(): Promise<{ city: string | null; denied: boolean }> {
+  try {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      return { city: null, denied: true };
+    }
+    const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    const [geo] = await Location.reverseGeocodeAsync({
+      latitude: loc.coords.latitude,
+      longitude: loc.coords.longitude,
+    });
+    const gpsCity = geo?.city || geo?.subregion || geo?.region;
+    if (gpsCity) {
+      console.log('[Location] GPS city:', gpsCity);
+      return { city: gpsCity, denied: false };
+    }
+  } catch (e) {
+    console.log('[Location] GPS failed:', e);
+  }
+  // IP geo fallback when GPS coordinates couldn't be reverse-geocoded
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
     const res = await fetch('https://ipapi.co/json/', { signal: controller.signal });
     clearTimeout(timer);
     const data = await res.json();
-    console.log('[Location] IP geo city:', data.city);
-    if (data.city) return data.city;
+    if (data.city) {
+      console.log('[Location] IP geo city:', data.city);
+      return { city: data.city, denied: false };
+    }
   } catch (e) {
     console.log('[Location] IP geo failed:', e);
   }
-
-  // Fallback: GPS via expo-location
-  try {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status === 'granted') {
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const [geo] = await Location.reverseGeocodeAsync({
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-      });
-      const gpsCity = geo?.city || geo?.subregion || geo?.region;
-      console.log('[Location] GPS city:', gpsCity);
-      if (gpsCity) return gpsCity;
-    }
-  } catch (e) {
-    console.log('[Location] GPS failed:', e);
-  }
-
-  console.log('[Location] Using fallback:', fallback);
-  return fallback;
+  return { city: null, denied: false };
 }
 
 export default function HomeScreen() {
@@ -64,23 +66,89 @@ export default function HomeScreen() {
   const [gamification, setGamification] = useState<any>(null);
   const [exposure, setExposure] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [city, setCity] = useState('Mumbai');
+  const [city, setCity] = useState('');
   const [error, setError] = useState(false);
+  const [cityInputMode, setCityInputMode] = useState(false);
+  const [cityInputValue, setCityInputValue] = useState('');
+  const [locationPrompt, setLocationPrompt] = useState<string | null>(null);
+  const [detectingLocation, setDetectingLocation] = useState(false);
+
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const appState = useRef(AppState.currentState);
   const conditionsRef = useRef<string[]>([]);
+  const savedSettingsRef = useRef<any>(null);
+
+  // Merges default_city into existing settings to avoid resetting user's other prefs.
+  async function saveCity(newCity: string) {
+    try {
+      const existing = savedSettingsRef.current || {};
+      await api.post('/api/settings', {
+        safe_aqi_threshold: existing.safe_aqi_threshold ?? 50,
+        risky_aqi_threshold: existing.risky_aqi_threshold ?? 150,
+        dangerous_aqi_threshold: existing.dangerous_aqi_threshold ?? 300,
+        notify_daily_updates: existing.notify_daily_updates ?? true,
+        notify_high_risk: existing.notify_high_risk ?? true,
+        notify_travel: existing.notify_travel ?? true,
+        notify_routine: existing.notify_routine ?? true,
+        default_city: newCity,
+      });
+      if (savedSettingsRef.current) {
+        savedSettingsRef.current = { ...savedSettingsRef.current, default_city: newCity };
+      }
+    } catch (e) {
+      console.log('[City] Failed to save city to settings:', e);
+    }
+  }
 
   const fetchData = useCallback(async () => {
     try {
       setError(false);
+
+      // Load saved settings first
       const settings = await api.get('/api/settings').catch(() => null);
+      savedSettingsRef.current = settings;
       const savedCity = settings?.default_city?.trim();
-      const detectedCity = savedCity ? savedCity : await detectUserCity('Mumbai');
-      setCity(detectedCity);
+
+      let activeCity: string;
+
+      if (savedCity) {
+        // Use saved city immediately so the dashboard loads without waiting for GPS
+        activeCity = savedCity;
+        setCity(savedCity);
+        setCityInputMode(false);
+
+        // Background: check if user's location has changed since last save
+        setDetectingLocation(true);
+        resolveLocation()
+          .then(({ city: detected }) => {
+            setDetectingLocation(false);
+            if (detected && detected.toLowerCase() !== savedCity.toLowerCase()) {
+              setLocationPrompt(detected);
+            }
+          })
+          .catch(() => setDetectingLocation(false));
+      } else {
+        // First launch or no saved city — foreground GPS detection
+        setDetectingLocation(true);
+        const { city: detected, denied } = await resolveLocation();
+        setDetectingLocation(false);
+
+        if (detected) {
+          activeCity = detected;
+          setCity(detected);
+          setCityInputMode(false);
+          saveCity(detected);
+        } else {
+          // Permission denied or all detection methods failed — ask user to type
+          setCityInputMode(true);
+          setLoading(false);
+          return;
+        }
+      }
 
       const [aqi, risk, profile] = await Promise.all([
-        api.get(`/api/aqi/${detectedCity}`),
-        api.post('/api/risk-assessment', { city: detectedCity }).catch(() => null),
+        api.get(`/api/aqi/${activeCity}`),
+        api.post('/api/risk-assessment', { city: activeCity }).catch(() => null),
         api.get('/api/health-profile').catch(() => null),
       ]);
       setAqiData(aqi);
@@ -88,7 +156,7 @@ export default function HomeScreen() {
       if (profile?.conditions) conditionsRef.current = profile.conditions;
 
       api.post('/api/activity', {
-        type: 'aqi_check', city: detectedCity,
+        type: 'aqi_check', city: activeCity,
         aqi: aqi?.aqi, risk_level: risk?.risk?.level || 'low',
         description: `AQI ${aqi?.aqi} - ${aqi?.level}`,
       }).catch(() => {});
@@ -101,12 +169,8 @@ export default function HomeScreen() {
       if (exp) setExposure(exp);
 
       const threshold = getPersonalizedThreshold(conditionsRef.current);
-      console.log(`[Notifications] AQI: ${aqi?.aqi}, threshold: ${threshold}, conditions: ${conditionsRef.current}`);
       if (aqi?.aqi >= threshold) {
-        console.log('[Notifications] Threshold exceeded — firing alert');
-        sendAqiAlert(aqi.aqi, detectedCity, aqi.level, conditionsRef.current).catch((e) => console.log('[Notifications] sendAqiAlert error:', e));
-      } else {
-        console.log('[Notifications] AQI below threshold — no alert');
+        sendAqiAlert(aqi.aqi, activeCity, aqi.level, conditionsRef.current).catch(() => {});
       }
     } catch (e) {
       setError(true);
@@ -116,6 +180,34 @@ export default function HomeScreen() {
       setRefreshing(false);
     }
   }, []);
+
+  // User submits a manually typed city (from picker screen or inline edit)
+  async function handleManualCitySubmit() {
+    const newCity = cityInputValue.trim();
+    if (!newCity) return;
+    await saveCity(newCity);
+    setCity(newCity);
+    setCityInputMode(false);
+    setCityInputValue('');
+    setLocationPrompt(null);
+    if (aqiData) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+    fetchData();
+  }
+
+  // User accepts the "you're now in X" location update prompt
+  async function handleAcceptLocationUpdate() {
+    if (!locationPrompt) return;
+    const newCity = locationPrompt;
+    setLocationPrompt(null);
+    await saveCity(newCity);
+    setCity(newCity);
+    setRefreshing(true);
+    fetchData();
+  }
 
   useEffect(() => {
     if (Platform.OS === 'web') {
@@ -167,6 +259,45 @@ export default function HomeScreen() {
     );
   }
 
+  // Full-screen city picker — shown when no data yet and location was unavailable
+  if (cityInputMode && !aqiData) {
+    return (
+      <View style={styles.container}>
+        <LinearGradient colors={[COLORS.bg, '#081210']} style={StyleSheet.absoluteFill} />
+        <SafeAreaView style={styles.flex} edges={['top']}>
+          <View style={styles.cityPickerContainer}>
+            <View style={styles.cityPickerIconWrap}>
+              <Ionicons name="location-outline" size={36} color={COLORS.accent} />
+            </View>
+            <Text style={styles.cityPickerTitle}>Where are you?</Text>
+            <Text style={styles.cityPickerSub}>
+              Location access was denied. Enter your city to get live air quality data.
+            </Text>
+            <TextInput
+              style={styles.cityPickerInput}
+              value={cityInputValue}
+              onChangeText={setCityInputValue}
+              placeholder="e.g. Mumbai, Delhi, Bengaluru"
+              placeholderTextColor={COLORS.textMuted}
+              autoFocus
+              returnKeyType="done"
+              autoCapitalize="words"
+              onSubmitEditing={handleManualCitySubmit}
+            />
+            <TouchableOpacity
+              style={[styles.cityPickerBtn, !cityInputValue.trim() && styles.cityPickerBtnDisabled]}
+              onPress={handleManualCitySubmit}
+              disabled={!cityInputValue.trim()}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.cityPickerBtnText}>Get Air Quality</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
+
   if (error && !aqiData) {
     return (
       <View style={styles.container}>
@@ -201,14 +332,69 @@ export default function HomeScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.textWhite} />}
           showsVerticalScrollIndicator={false}
         >
+          {/* Location update prompt — shown when GPS detects a different city than saved */}
+          {locationPrompt && (
+            <View style={styles.locationPrompt}>
+              <Ionicons name="navigate" size={13} color={COLORS.accent} />
+              <Text style={styles.locationPromptText}>
+                You're in{' '}
+                <Text style={styles.locationPromptCity}>{locationPrompt}</Text>
+              </Text>
+              <TouchableOpacity onPress={handleAcceptLocationUpdate} style={styles.locationPromptUpdateBtn}>
+                <Text style={styles.locationPromptUpdateText}>Update</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setLocationPrompt(null)} style={styles.locationPromptClose}>
+                <Ionicons name="close" size={14} color={COLORS.textMuted} />
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* Header */}
           <View style={styles.header}>
-            <View>
+            <View style={styles.headerLeft}>
               <Text style={styles.greeting}>Hello, {user?.name || 'User'}</Text>
-              <View style={styles.cityRow}>
-                <Ionicons name="location" size={14} color={tokenTheme.primary} />
-                <Text style={[styles.cityLabel, { color: tokenTheme.primary }]}>{city}</Text>
-              </View>
+              {/* City row — edit mode vs display mode */}
+              {cityInputMode ? (
+                <View style={styles.cityEditRow}>
+                  <Ionicons name="location" size={14} color={tokenTheme.primary} />
+                  <TextInput
+                    style={[styles.cityInlineInput, { color: tokenTheme.primary }]}
+                    value={cityInputValue}
+                    onChangeText={setCityInputValue}
+                    placeholder={city || 'Enter city'}
+                    placeholderTextColor={COLORS.textMuted}
+                    autoFocus
+                    returnKeyType="done"
+                    autoCapitalize="words"
+                    onSubmitEditing={handleManualCitySubmit}
+                  />
+                  <TouchableOpacity onPress={handleManualCitySubmit} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Ionicons name="checkmark" size={16} color={COLORS.accent} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => { setCityInputMode(false); setCityInputValue(''); }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="close" size={16} color={COLORS.textMuted} />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.cityRow}>
+                  <Ionicons name="location" size={14} color={tokenTheme.primary} />
+                  <Text style={[styles.cityLabel, { color: tokenTheme.primary }]}>{city}</Text>
+                  {detectingLocation ? (
+                    <ActivityIndicator size="small" color={COLORS.textMuted} style={styles.detectingSpinner} />
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() => { setCityInputMode(true); setCityInputValue(''); }}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      style={styles.cityEditBtn}
+                    >
+                      <Ionicons name="pencil-outline" size={12} color={COLORS.textMuted} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
             </View>
             <View style={styles.headerRight}>
               <TouchableOpacity testID="settings-btn" style={styles.iconBtn} onPress={() => router.push('/settings')}>
@@ -411,10 +597,40 @@ const styles = StyleSheet.create({
   },
   retryText: { fontSize: FONT_SIZE.md + 1, fontFamily: FONTS.bodySemibold, color: COLORS.accent },
   scroll: { padding: SPACING.xl, paddingBottom: 40 },
+
+  // Location update prompt
+  locationPrompt: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: COLORS.accent + '12', borderWidth: 1, borderColor: COLORS.accent + '25',
+    borderRadius: RADIUS.md, paddingHorizontal: 12, paddingVertical: 8,
+    marginBottom: SPACING.lg,
+  },
+  locationPromptText: { flex: 1, fontSize: FONT_SIZE.sm, fontFamily: FONTS.body, color: COLORS.textSecondary },
+  locationPromptCity: { fontFamily: FONTS.bodySemibold, color: COLORS.textWhite },
+  locationPromptUpdateBtn: {
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.accent, marginLeft: 4,
+  },
+  locationPromptUpdateText: { fontSize: FONT_SIZE.xs + 1, fontFamily: FONTS.bodySemibold, color: COLORS.bg },
+  locationPromptClose: { padding: 2 },
+
+  // Header
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.xxl },
+  headerLeft: { flex: 1, paddingRight: 8 },
   greeting: { fontSize: FONT_SIZE.xl + 4, fontFamily: FONTS.heading, color: COLORS.textWhite },
   cityRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   cityLabel: { fontSize: FONT_SIZE.md, fontFamily: FONTS.bodyMedium },
+  cityEditBtn: { marginLeft: 4 },
+  detectingSpinner: { marginLeft: 4 },
+
+  // Inline city edit in header
+  cityEditRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  cityInlineInput: {
+    flex: 1, fontSize: FONT_SIZE.md, fontFamily: FONTS.bodyMedium,
+    borderBottomWidth: 1, borderBottomColor: COLORS.border, paddingVertical: 2,
+    minWidth: 80,
+  },
+
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   iconBtn: {
     width: 40, height: 40, borderRadius: 20,
@@ -426,13 +642,43 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   aqiBadgeText: { fontSize: FONT_SIZE.sm, fontFamily: FONTS.monoBold },
+
+  // Full-screen city picker
+  cityPickerContainer: {
+    flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 16,
+  },
+  cityPickerIconWrap: {
+    width: 80, height: 80, borderRadius: 40,
+    backgroundColor: COLORS.accent + '15', borderWidth: 1, borderColor: COLORS.accent + '30',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 8,
+  },
+  cityPickerTitle: { fontSize: FONT_SIZE.xxl, fontFamily: FONTS.heading, color: COLORS.textWhite, textAlign: 'center' },
+  cityPickerSub: {
+    fontSize: FONT_SIZE.md, fontFamily: FONTS.body, color: COLORS.textSecondary,
+    textAlign: 'center', lineHeight: 22,
+  },
+  cityPickerInput: {
+    width: '100%', height: 54, borderRadius: RADIUS.md,
+    backgroundColor: COLORS.glass, borderWidth: 1, borderColor: COLORS.border,
+    paddingHorizontal: 16, fontSize: FONT_SIZE.md + 1, fontFamily: FONTS.bodyMedium,
+    color: COLORS.textWhite, marginTop: 8,
+  },
+  cityPickerBtn: {
+    width: '100%', height: 54, borderRadius: RADIUS.pill,
+    backgroundColor: COLORS.accent, alignItems: 'center', justifyContent: 'center',
+    shadowColor: COLORS.accent, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3, shadowRadius: 12, elevation: 8,
+  },
+  cityPickerBtnDisabled: { opacity: 0.4 },
+  cityPickerBtnText: { fontSize: FONT_SIZE.lg, fontFamily: FONTS.heading, color: COLORS.bg, letterSpacing: 0.5 },
+
+  // Dashboard cards
   orbSection: { alignItems: 'center', marginBottom: SPACING.xxxl, paddingVertical: SPACING.lg },
   aqiLabel: { fontSize: FONT_SIZE.lg, fontFamily: FONTS.bodyMedium, marginTop: SPACING.sm },
   mapHint: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     marginTop: 8, paddingHorizontal: 12, paddingVertical: 5,
-    borderRadius: 20, borderWidth: 1,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 20, borderWidth: 1, backgroundColor: 'rgba(255,255,255,0.04)',
   },
   mapHintText: { fontSize: 12, fontWeight: '600' },
   gaugeCard: { marginBottom: SPACING.lg, alignItems: 'center' },
@@ -475,8 +721,7 @@ const styles = StyleSheet.create({
   quickActions: { marginTop: SPACING.sm },
   actionBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    paddingVertical: SPACING.lg, borderRadius: RADIUS.md, gap: 10,
-    borderWidth: 1,
+    paddingVertical: SPACING.lg, borderRadius: RADIUS.md, gap: 10, borderWidth: 1,
   },
   actionText: { fontSize: FONT_SIZE.md + 1, fontFamily: FONTS.bodySemibold },
   exposureRow: { flexDirection: 'row', alignItems: 'center' },
