@@ -11,6 +11,7 @@ import { useChat, Message } from '../../src/hooks/useChat';
 import { ChatBubble } from '../../src/components/chat/ChatBubble';
 import { TypingIndicator } from '../../src/components/chat/TypingIndicator';
 import api from '../../src/utils/api';
+import { calculatePersonalizedRisk } from '../../src/utils/riskEngine';
 
 const SUGGESTED = [
   'Is today safe for outdoor exercise?',
@@ -23,8 +24,10 @@ export default function ChatScreen() {
   const [input, setInput] = useState('');
   const [aqi, setAqi] = useState<number | null>(null);
   const [city, setCity] = useState<string | null>(null);
+  const [riskScore, setRiskScore] = useState<number | null>(null);
+  const [riskLevel, setRiskLevel] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
-  const { messages, loading, messagesRemaining, limitReached, usageLoading, sendMessage, clearHistory } = useChat(aqi, city);
+  const { messages, loading, messagesRemaining, limitReached, usageLoading, sendMessage, clearHistory } = useChat(aqi, city, riskScore, riskLevel);
 
   useEffect(() => {
     fetchContext();
@@ -35,8 +38,20 @@ export default function ChatScreen() {
       const settings = await api.get('/api/settings');
       const defaultCity = settings.default_city || 'Mumbai';
       setCity(defaultCity);
-      const aqiData = await api.get(`/api/aqi/${defaultCity}`);
+      const [aqiData, profile] = await Promise.all([
+        api.get(`/api/aqi/${defaultCity}`),
+        api.get('/api/health-profile').catch(() => null),
+      ]);
       setAqi(aqiData.aqi ?? null);
+      if (aqiData && profile) {
+        const result = calculatePersonalizedRisk(aqiData, {
+          conditions: profile.conditions || [],
+          medications: profile.medications || [],
+          age: profile.age ?? null,
+        });
+        setRiskScore(result.score);
+        setRiskLevel(result.level);
+      }
     } catch (_) {}
   }
 
@@ -54,6 +69,7 @@ export default function ChatScreen() {
   const contextLabel = [
     aqi != null && `AQI: ${aqi}`,
     city,
+    riskScore != null && `Risk: ${riskScore}/100`,
   ].filter(Boolean).join(' · ');
 
   return (

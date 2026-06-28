@@ -975,6 +975,8 @@ class ChatRequest(BaseModel):
     history: List[ChatMessage] = []
     aqi: Optional[int] = None
     city: Optional[str] = None
+    risk_score: Optional[int] = None
+    risk_level: Optional[str] = None
 
 CHAT_DAILY_LIMIT = 20
 
@@ -1034,6 +1036,11 @@ async def chat(req: ChatRequest, user=Depends(get_current_user)):
     symptom_text = "; ".join([", ".join(s.get("symptoms", [])) for s in recent_symptoms]) if recent_symptoms else "None recently"
     aqi_info = f"AQI {req.aqi}" if req.aqi else "AQI unknown"
 
+    risk_info = (
+        f"{req.risk_score}/100 ({req.risk_level})"
+        if req.risk_score is not None and req.risk_level
+        else "not calculated"
+    )
     system_prompt = f"""You are EnviroCare AI, a personal health assistant specialising in air quality and its effects on health.
 
 User Profile:
@@ -1041,14 +1048,15 @@ User Profile:
 - Medications: {', '.join(medications) if medications else 'None'}
 - Allergies: {', '.join(allergies) if allergies else 'None'}
 - Recent Symptoms: {symptom_text}
-- Current AQI: {aqi_info} in {req.city or 'their city'}
+- Current Location AQI: {aqi_info} in {req.city or 'their city'}
+- Personal Risk Score: {risk_info} (calculated by mapping their conditions to current pollutant levels)
 
-Guidelines:
-- Always write COMPLETE sentences — never stop mid-sentence.
-- Answer in 3-5 full sentences maximum. Finish every sentence before stopping.
-- Tailor advice to the user's specific conditions above.
-- Never diagnose — suggest consulting a doctor for medical concerns.
-- Focus on air quality, breathing safety, and outdoor activity guidance."""
+STRICT OUTPUT RULES — you MUST follow these exactly:
+1. Write a MAXIMUM of 3 sentences. Stop after the 3rd sentence full stop.
+2. Every sentence MUST be grammatically complete. Never end mid-sentence or mid-word.
+3. If you mention the risk score, use the exact number provided above — do NOT say you don't have it.
+4. Tailor every answer to their specific conditions listed above.
+5. Never diagnose — suggest consulting a doctor for medical concerns."""
 
     try:
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("EMERGENT_LLM_KEY", "")
@@ -1074,7 +1082,7 @@ Guidelines:
             payload = {
                 "system_instruction": {"parts": [{"text": system_prompt}]},
                 "contents": contents,
-                "generationConfig": {"maxOutputTokens": 1024, "temperature": 0.7}
+                "generationConfig": {"maxOutputTokens": 2048, "temperature": 0.65}
             }
             # Retry once on rate limit
             for attempt in range(2):
@@ -1300,18 +1308,82 @@ async def mark_read(notification_id: str, user=Depends(get_current_user)):
 # ===================== TRAVEL HOTSPOTS =====================
 
 _ROUTE_CITIES = [
-    "Agra", "Ahmedabad", "Ajmer", "Aligarh", "Allahabad", "Amravati", "Amritsar",
-    "Asansol", "Aurangabad", "Bangalore", "Bareilly", "Belgaum", "Bhilai", "Bhopal",
-    "Bhubaneswar", "Chandigarh", "Chennai", "Coimbatore", "Cuttack", "Dehradun",
-    "Dhanbad", "Durgapur", "Faridabad", "Gaya", "Ghaziabad", "Gorakhpur",
-    "Gurgaon", "Guwahati", "Gwalior", "Hubballi-Dharwad", "Hyderabad", "Indore",
-    "Jabalpur", "Jaipur", "Jalandhar", "Jamshedpur", "Jodhpur", "Kanpur",
-    "Kochi", "Kolkata", "Kota", "Kozhikode", "Lucknow", "Ludhiana", "Madurai",
-    "Mangalore", "Meerut", "Moradabad", "Mumbai", "Mysore", "Nagpur", "Nashik",
-    "Noida", "Patna", "Pune", "Raipur", "Rajkot", "Ranchi", "Saharanpur",
-    "Salem", "Siliguri", "Solapur", "Srinagar", "Surat", "Thane",
-    "Thiruvananthapuram", "Tiruchirappalli", "Udaipur", "Vadodara", "Varanasi",
-    "Vijayawada", "Visakhapatnam", "Warangal",
+    # Agra
+    "Manoharpur, Agra", "Sanjay Palace, Agra", "Shastripuram, Agra",
+    # Ahmedabad
+    "Bopal, Ahmedabad", "Chandkheda, Ahmedabad", "Maninagar, Ahmedabad", "Gyaspur, Ahmedabad",
+    # Amritsar
+    "Golden Temple Area, Amritsar",
+    # Bangalore
+    "BTM Layout, Bangalore", "Hebbal, Bangalore", "Silk Board, Bangalore",
+    # Bhopal
+    "T T Nagar, Bhopal", "Paryavaran Parisar, Bhopal",
+    # Chandigarh
+    "Sector 22, Chandigarh", "Sector 25, Chandigarh", "Sector 53, Chandigarh",
+    # Chennai
+    "Arumbakkam, Chennai", "Kodungaiyur, Chennai", "Manali, Chennai",
+    "Perungudi, Chennai", "Royapuram, Chennai", "Velachery, Chennai",
+    # Coimbatore
+    "SIDCO Kurichi, Coimbatore",
+    # Dehradun
+    "Doon University Area, Dehradun",
+    # Delhi
+    "Anand Vihar, Delhi", "Dwarka, Delhi", "Okhla, Delhi",
+    "Punjabi Bagh, Delhi", "RK Puram, Delhi", "Rohini, Delhi",
+    # Faridabad
+    "New Industrial Town, Faridabad", "Sector 11, Faridabad", "Sector 30, Faridabad",
+    # Ghaziabad
+    "Indirapuram, Ghaziabad", "Sanjay Nagar, Ghaziabad", "Vasundhara, Ghaziabad",
+    # Gurgaon
+    "Aya Nagar, Gurgaon", "Gwal Pahari, Gurgaon", "Sector 51, Gurgaon",
+    # Guwahati
+    "Pan Bazaar, Guwahati", "Railway Colony, Guwahati",
+    # Hyderabad
+    "Kokapet, Hyderabad", "Kompally, Hyderabad", "Nacharam, Hyderabad",
+    "New Malakpet, Hyderabad", "Sanathnagar, Hyderabad", "Somajiguda, Hyderabad",
+    "Zoo Park Area, Hyderabad",
+    # Jaipur
+    "Adarsh Nagar, Jaipur", "Police Commissionerate Area, Jaipur",
+    # Jodhpur
+    "Collectorate Area, Jodhpur",
+    # Kanpur
+    "Kidwai Nagar, Kanpur", "Nehru Nagar, Kanpur",
+    # Kolkata
+    "Ballygunge, Kolkata", "Belur Math, Kolkata", "Bidhannagar, Kolkata",
+    "Jadavpur, Kolkata", "Rabindra Sarobar, Kolkata", "Victoria, Kolkata",
+    # Lucknow
+    "Gomti Nagar, Lucknow", "Lalbagh, Lucknow", "Talkatora, Lucknow",
+    # Mumbai
+    "Andheri, Mumbai", "Bandra Kurla Complex, Mumbai", "Bhandup, Mumbai",
+    "Borivali, Mumbai", "Colaba, Mumbai", "Deonar, Mumbai",
+    "Kurla, Mumbai", "Malad, Mumbai", "Mazgaon, Mumbai",
+    "Mulund, Mumbai", "Powai, Mumbai", "Sion, Mumbai", "Worli, Mumbai",
+    # Nagpur
+    "Civil Lines, Nagpur",
+    # Nashik
+    "Gangapur Road, Nashik",
+    # Noida
+    "Sector 1, Noida", "Sector 62, Noida", "Sector 116, Noida", "Knowledge Park, Noida",
+    # Patna
+    "Muradpur, Patna", "Rajbansi Nagar, Patna", "Samanpura, Patna",
+    # Pune
+    "Katraj, Pune", "Pimpri, Pune", "Hadapsar, Pune", "Shivajinagar, Pune",
+    # Surat
+    "Karanj, Surat", "Sachin, Surat",
+    # Varanasi
+    "Ardhali Bazar, Varanasi", "Bhelupur, Varanasi", "Maldahiya, Varanasi",
+    # Visakhapatnam
+    "GVM Corporation Area, Visakhapatnam",
+    # Others
+    "Ajmer", "Bareilly", "Bhilai", "Bhubaneswar", "Cuttack",
+    "Dhanbad", "Durgapur", "Gaya", "Gorakhpur", "Gwalior",
+    "Hubballi-Dharwad", "Indore", "Jabalpur", "Jalandhar",
+    "Jamshedpur", "Kochi", "Kota", "Kozhikode",
+    "Ludhiana", "Madurai", "Mangalore", "Meerut", "Moradabad",
+    "Mysore", "Raipur", "Rajkot", "Ranchi", "Saharanpur",
+    "Salem", "Siliguri", "Solapur", "Srinagar",
+    "Thiruvananthapuram", "Tiruchirappalli", "Udaipur", "Vadodara",
+    "Vijayawada", "Warangal",
 ]
 
 @api_router.post("/travel/hotspots")
@@ -1321,10 +1393,13 @@ async def get_travel_hotspots(user=Depends(get_current_user), body: dict = {}):
     origin_aqi = await fetch_city_aqi(origin)
     dest_aqi = await fetch_city_aqi(destination)
 
-    # Pick intermediate cities from the route list, excluding origin and destination.
-    origin_base = origin.split(" - ")[0].strip()
-    dest_base = destination.split(" - ")[0].strip()
-    candidates = [c for c in _ROUTE_CITIES if c not in (origin_base, dest_base)]
+    # Pick intermediate locations, excluding anything that belongs to origin or destination city.
+    origin_base = origin.split(" - ")[0].strip().lower()
+    dest_base = destination.split(" - ")[0].strip().lower()
+    candidates = [
+        c for c in _ROUTE_CITIES
+        if origin_base not in c.lower() and dest_base not in c.lower()
+    ]
 
     random.seed(hash(origin + destination + str(datetime.now(timezone.utc).date())))
     num_points = random.randint(3, 5)

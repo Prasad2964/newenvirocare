@@ -14,7 +14,7 @@ const STORAGE_KEY = 'envirocare_chat_history';
 const MAX_STORED = 20;
 const DAILY_LIMIT = 20;
 
-export function useChat(aqi: number | null, city: string | null) {
+export function useChat(aqi: number | null, city: string | null, riskScore?: number | null, riskLevel?: string | null) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [messagesRemaining, setMessagesRemaining] = useState(DAILY_LIMIT);
@@ -66,7 +66,11 @@ export function useChat(aqi: number | null, city: string | null) {
       const parsed: Message[] = currentMessages ? JSON.parse(currentMessages) : [];
       const history = [...parsed, userMsg].slice(-6).map(m => ({ role: m.role, content: m.content }));
 
-      const data = await api.post('/api/chat', { message: text.trim(), history, aqi, city });
+      const data = await api.post('/api/chat', {
+        message: text.trim(), history, aqi, city,
+        risk_score: riskScore ?? null,
+        risk_level: riskLevel ?? null,
+      });
 
       const aiMsg: Message = {
         id: (Date.now() + 1).toString(),
@@ -105,7 +109,7 @@ export function useChat(aqi: number | null, city: string | null) {
     } finally {
       setLoading(false);
     }
-  }, [loading, limitReached, aqi, city]);
+  }, [loading, limitReached, aqi, city, riskScore, riskLevel]);
 
   const clearHistory = useCallback(async () => {
     setMessages([]);
