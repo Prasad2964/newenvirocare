@@ -113,37 +113,162 @@ async def get_current_user(authorization: str = Header(None)):
         raise HTTPException(status_code=401, detail="Invalid token")
 
 # ===================== WAQI STATION UID MAP =====================
-# Allows fetching specific monitoring stations by WAQI UID
-# so sub-city areas like "Mumbai - Bandra" can be looked up directly.
+# Maps "City - Area" labels to WAQI station UIDs for direct station lookup.
+# Keys must be lowercase and match what the frontend dropdown sends.
 WAQI_STATION_UIDS: dict[str, int] = {
-    # Mumbai stations (16 CPCB stations)
-    "mumbai - bandra kurla complex": 13715,
-    "mumbai - kurla":                12454,
-    "mumbai - worli":                11921,
-    "mumbai - siddharth nagar worli":13706,
-    "mumbai - andheri":              13713,
-    "mumbai - borivali":             12460,
-    "mumbai - powai":                12459,
-    "mumbai - sion":                 12464,
-    "mumbai - colaba":               11962,
-    "mumbai - navy nagar colaba":    13707,
-    "mumbai - malad":                13803,
-    "mumbai - mulund":               13708,
-    "mumbai - bhandup":              13710,
-    "mumbai - mazgaon":              13709,
-    "mumbai - deonar":               13712,
-    "mumbai - airport":              12456,
-    # Delhi stations
-    "delhi - anand vihar":           7022,
-    "delhi - punjabi bagh":          7017,
-    "delhi - rk puram":              7025,
-    "delhi - dwarka":                7020,
-    "delhi - rohini":                14826,
-    "delhi - okhla":                 7031,
-    # Bangalore stations
-    "bangalore - silk board":        14543,
-    "bangalore - btm layout":        14544,
-    "bangalore - hebbal":            14545,
+    # ── Agra (6) ──────────────────────────────────────────────
+    "agra - sanjay palace":                  8186,
+    "agra - shastripuram":                   13751,
+    "agra - manoharpur":                     13754,
+    "agra - sector-3b avas vikas colony":    13753,
+    "agra - shahjahan garden":               13752,
+    "agra - rohta":                          13873,
+    # ── Ahmedabad (8) ─────────────────────────────────────────
+    "ahmedabad - rakhial":                   13748,
+    "ahmedabad - sac isro satellite":        13746,
+    "ahmedabad - chandkheda":                13750,
+    "ahmedabad - bopal":                     13747,
+    "ahmedabad - airport hansol":            13745,
+    "ahmedabad - maninagar":                 8192,
+    "ahmedabad - phase-4 gidc":              12451,
+    "ahmedabad - gyaspur":                   13749,
+    # ── Amritsar (1) ──────────────────────────────────────────
+    "amritsar - golden temple":              11321,
+    # ── Bangalore (3) ─────────────────────────────────────────
+    "bangalore - silk board":                14543,
+    "bangalore - btm layout":                14544,
+    "bangalore - hebbal":                    14545,
+    # ── Bhopal (2) ────────────────────────────────────────────
+    "bhopal - t t nagar":                    12429,
+    "bhopal - paryavaran parisar":           14695,
+    # ── Chandigarh (4) ────────────────────────────────────────
+    "chandigarh - sector 22":                13741,
+    "chandigarh - sector-25":                12428,
+    "chandigarh - sector-53":                13876,
+    "chandigarh - sector 6 panchkula":       8680,
+    # ── Chennai (7) ───────────────────────────────────────────
+    "chennai - arumbakkam":                  13740,
+    "chennai - kodungaiyur":                 13739,
+    "chennai - manali":                      8185,
+    "chennai - manali village":              11859,
+    "chennai - perungudi":                   13738,
+    "chennai - royapuram":                   13737,
+    "chennai - velachery":                   11279,
+    # ── Coimbatore (1) ────────────────────────────────────────
+    "coimbatore - sidco kurichi":            11847,
+    # ── Dehradun (1) ──────────────────────────────────────────
+    "dehradun - doon university":            14698,
+    # ── Delhi (6) ─────────────────────────────────────────────
+    "delhi - anand vihar":                   7022,
+    "delhi - punjabi bagh":                  7017,
+    "delhi - rk puram":                      7025,
+    "delhi - dwarka":                        7020,
+    "delhi - rohini":                        14826,
+    "delhi - okhla":                         7031,
+    # ── Faridabad (4) ─────────────────────────────────────────
+    "faridabad - sector 11":                 12813,
+    "faridabad - sector 30":                 12814,
+    "faridabad - new industrial town":       12889,
+    "faridabad - dr karni singh range":      10110,
+    # ── Ghaziabad (4) ─────────────────────────────────────────
+    "ghaziabad - vasundhara":                11856,
+    "ghaziabad - sanjay nagar":              11899,
+    "ghaziabad - indirapuram":               12435,
+    "ghaziabad - sector-62":                 11865,
+    # ── Gurgaon (5) ───────────────────────────────────────────
+    "gurgaon - vikas sadan":                 8685,
+    "gurgaon - sector-51":                   12816,
+    "gurgaon - teri gram":                   12890,
+    "gurgaon - gwal pahari":                 11300,
+    "gurgaon - aya nagar":                   10126,
+    # ── Guwahati (2) ──────────────────────────────────────────
+    "guwahati - pan bazaar":                 13729,
+    "guwahati - railway colony":             11844,
+    # ── Hyderabad (9) ─────────────────────────────────────────
+    "hyderabad - zoo park":                  8677,
+    "hyderabad - sanathnagar":               8182,
+    "hyderabad - central university":        11284,
+    "hyderabad - new malakpet":              14135,
+    "hyderabad - somajiguda":                14125,
+    "hyderabad - ecil kapra":                14156,
+    "hyderabad - kokapet":                   14127,
+    "hyderabad - kompally":                  14149,
+    "hyderabad - nacharam":                  14155,
+    # ── Jaipur (2) ────────────────────────────────────────────
+    "jaipur - adarsh nagar":                 11308,
+    "jaipur - police commissionerate":       11291,
+    # ── Jodhpur (1) ───────────────────────────────────────────
+    "jodhpur - collectorate":                12433,
+    # ── Kanpur (3) ────────────────────────────────────────────
+    "kanpur - nehru nagar":                  8187,
+    "kanpur - nsi kalyanpur":                13725,
+    "kanpur - kidwai nagar":                 13727,
+    # ── Kolkata (10) ──────────────────────────────────────────
+    "kolkata - victoria":                    9068,
+    "kolkata - fort william":                12457,
+    "kolkata - rabindra sarobar":            12467,
+    "kolkata - bidhannagar":                 12745,
+    "kolkata - rabindra bharati university": 9145,
+    "kolkata - jadavpur":                    12458,
+    "kolkata - padmapukur":                  11320,
+    "kolkata - ballygunge":                  12746,
+    "kolkata - ghusuri":                     11281,
+    "kolkata - belur math":                  12450,
+    # ── Lucknow (6) ───────────────────────────────────────────
+    "lucknow - talkatora":                   8188,
+    "lucknow - lalbagh":                     8673,
+    "lucknow - gomti nagar":                 12468,
+    "lucknow - central school":              3845,
+    "lucknow - ambedkar university":         13721,
+    "lucknow - kukrail":                     13720,
+    # ── Ludhiana (1) ──────────────────────────────────────────
+    "ludhiana - pau":                        11272,
+    # ── Mumbai (16) ───────────────────────────────────────────
+    "mumbai - airport":                      12456,
+    "mumbai - andheri":                      13713,
+    "mumbai - bandra kurla complex":         13715,
+    "mumbai - bhandup":                      13710,
+    "mumbai - borivali":                     12460,
+    "mumbai - colaba":                       11962,
+    "mumbai - deonar":                       13712,
+    "mumbai - kurla":                        12454,
+    "mumbai - malad":                        13803,
+    "mumbai - mazgaon":                      13709,
+    "mumbai - mulund":                       13708,
+    "mumbai - navy nagar colaba":            13707,
+    "mumbai - powai":                        12459,
+    "mumbai - siddharth nagar worli":        13706,
+    "mumbai - sion":                         12464,
+    "mumbai - worli":                        11921,
+    # ── Nagpur (1) ────────────────────────────────────────────
+    "nagpur - civil lines":                  12444,
+    # ── Nashik (1) ────────────────────────────────────────────
+    "nashik - gangapur road":                11283,
+    # ── Noida (7) ─────────────────────────────────────────────
+    "noida - sector-1":                      12466,
+    "noida - mother dairy plant":            10704,
+    "noida - sector-62":                     11865,
+    "noida - indirapuram":                   12435,
+    "noida - knowledge park-v":              12463,
+    "noida - sector-116":                    12465,
+    "noida - sector-125":                    11863,
+    # ── Patna (6) ─────────────────────────────────────────────
+    "patna - igsc planetarium":              8674,
+    "patna - samanpura":                     12742,
+    "patna - muradpur":                      12744,
+    "patna - rajbansi nagar":                12743,
+    "patna - industrial area":               12818,
+    "patna - shikarpur":                     12887,
+    # ── Thiruvananthapuram (2) ────────────────────────────────
+    "thiruvananthapuram - plammoodu":        9585,
+    "thiruvananthapuram - kariavattom":      12824,
+    # ── Varanasi (4) ──────────────────────────────────────────
+    "varanasi - ardhali bazar":              8189,
+    "varanasi - maldahiya":                  13690,
+    "varanasi - bhelupur":                   13692,
+    "varanasi - banaras hindu university":   13691,
+    # ── Visakhapatnam (1) ─────────────────────────────────────
+    "visakhapatnam - gvm corporation":       12443,
 }
 
 # ===================== MOCK AQI DATA =====================

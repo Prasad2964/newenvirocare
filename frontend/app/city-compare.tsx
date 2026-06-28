@@ -12,36 +12,107 @@ import api from '../src/utils/api';
 import { getAqiTheme } from '../src/utils/theme';
 import GlassCard from '../src/components/GlassCard';
 
-// ── Indian cities + monitored sub-areas ──────────────────────────────────────
+// ── Cities + all WAQI-indexed monitoring stations ────────────────────────────
 const INDIAN_CITIES = [
-  'Agra', 'Ahmedabad', 'Ajmer', 'Aligarh', 'Allahabad', 'Amravati', 'Amritsar',
+  // Agra (6 stations)
+  'Agra', 'Agra - Manoharpur', 'Agra - Rohta', 'Agra - Sanjay Palace',
+  'Agra - Shahjahan Garden', 'Agra - Shastripuram',
+  // Ahmedabad (8 stations)
+  'Ahmedabad', 'Ahmedabad - Airport Hansol', 'Ahmedabad - Bopal',
+  'Ahmedabad - Chandkheda', 'Ahmedabad - Gyaspur', 'Ahmedabad - Maninagar',
+  'Ahmedabad - Phase-4 GIDC', 'Ahmedabad - SAC ISRO Satellite',
+  // Others A
+  'Ajmer', 'Aligarh', 'Allahabad', 'Amravati',
+  'Amritsar', 'Amritsar - Golden Temple',
   'Asansol', 'Aurangabad',
-  // Bangalore + monitored stations
+  // Bangalore (3 stations)
   'Bangalore', 'Bangalore - BTM Layout', 'Bangalore - Hebbal', 'Bangalore - Silk Board',
-  'Bareilly', 'Belgaum', 'Bhavnagar', 'Bhilai', 'Bhiwandi', 'Bhopal', 'Bhubaneswar',
-  'Bikaner', 'Chandigarh', 'Chennai', 'Coimbatore', 'Cuttack', 'Davanagere', 'Dehradun',
-  // Delhi + monitored stations
+  // Others B
+  'Bareilly', 'Belgaum', 'Bhavnagar', 'Bhilai', 'Bhiwandi',
+  'Bhopal', 'Bhopal - Paryavaran Parisar', 'Bhopal - T T Nagar',
+  'Bhubaneswar', 'Bikaner',
+  // Chandigarh (4 stations)
+  'Chandigarh', 'Chandigarh - Sector 22', 'Chandigarh - Sector-25',
+  'Chandigarh - Sector-53', 'Chandigarh - Sector 6 Panchkula',
+  // Chennai (7 stations)
+  'Chennai', 'Chennai - Arumbakkam', 'Chennai - Kodungaiyur', 'Chennai - Manali',
+  'Chennai - Manali Village', 'Chennai - Perungudi', 'Chennai - Royapuram',
+  'Chennai - Velachery',
+  // Others C–D
+  'Coimbatore', 'Coimbatore - SIDCO Kurichi',
+  'Cuttack', 'Davanagere',
+  'Dehradun', 'Dehradun - Doon University',
+  // Delhi (6 stations)
   'Delhi', 'Delhi - Anand Vihar', 'Delhi - Dwarka', 'Delhi - Okhla',
   'Delhi - Punjabi Bagh', 'Delhi - RK Puram', 'Delhi - Rohini',
-  'Dhanbad', 'Durgapur', 'Erode', 'Faridabad', 'Gaya', 'Ghaziabad', 'Gorakhpur',
-  'Gulbarga', 'Guntur', 'Gurgaon', 'Guwahati', 'Gwalior', 'Hubballi-Dharwad',
-  'Hyderabad', 'Indore', 'Jabalpur', 'Jaipur', 'Jalandhar', 'Jalgaon',
-  'Jamnagar', 'Jammu', 'Jamshedpur', 'Jhansi', 'Jodhpur', 'Kanpur', 'Kochi',
-  'Kolhapur', 'Kolkata', 'Kota', 'Kozhikode', 'Lucknow', 'Ludhiana', 'Madurai',
-  'Maheshtala', 'Malegaon', 'Mangalore', 'Meerut', 'Moradabad',
-  // Mumbai + all 16 CPCB monitoring stations
-  'Mumbai',
-  'Mumbai - Airport', 'Mumbai - Andheri', 'Mumbai - Bandra Kurla Complex',
+  // Others D–F
+  'Dhanbad', 'Durgapur', 'Erode',
+  'Faridabad', 'Faridabad - Dr Karni Singh Range', 'Faridabad - New Industrial Town',
+  'Faridabad - Sector 11', 'Faridabad - Sector 30',
+  // Others G
+  'Gaya',
+  'Ghaziabad', 'Ghaziabad - Indirapuram', 'Ghaziabad - Sanjay Nagar',
+  'Ghaziabad - Sector-62', 'Ghaziabad - Vasundhara',
+  'Gorakhpur', 'Gulbarga', 'Guntur',
+  'Gurgaon', 'Gurgaon - Aya Nagar', 'Gurgaon - Gwal Pahari',
+  'Gurgaon - Sector-51', 'Gurgaon - Teri Gram', 'Gurgaon - Vikas Sadan',
+  'Guwahati', 'Guwahati - Pan Bazaar', 'Guwahati - Railway Colony',
+  'Gwalior',
+  // Hyderabad (9 stations)
+  'Hyderabad', 'Hyderabad - Central University', 'Hyderabad - ECIL Kapra',
+  'Hyderabad - Kokapet', 'Hyderabad - Kompally', 'Hyderabad - Nacharam',
+  'Hyderabad - New Malakpet', 'Hyderabad - Sanathnagar', 'Hyderabad - Somajiguda',
+  'Hyderabad - Zoo Park',
+  // Others H–J
+  'Hubballi-Dharwad', 'Indore', 'Jabalpur',
+  'Jaipur', 'Jaipur - Adarsh Nagar', 'Jaipur - Police Commissionerate',
+  'Jalandhar', 'Jalgaon', 'Jamnagar', 'Jammu', 'Jamshedpur', 'Jhansi',
+  'Jodhpur', 'Jodhpur - Collectorate',
+  // Kanpur (3 stations)
+  'Kanpur', 'Kanpur - Kidwai Nagar', 'Kanpur - Nehru Nagar', 'Kanpur - NSI Kalyanpur',
+  'Kochi', 'Kolhapur',
+  // Kolkata (10 stations)
+  'Kolkata', 'Kolkata - Ballygunge', 'Kolkata - Belur Math', 'Kolkata - Bidhannagar',
+  'Kolkata - Fort William', 'Kolkata - Ghusuri', 'Kolkata - Jadavpur',
+  'Kolkata - Padmapukur', 'Kolkata - Rabindra Bharati University',
+  'Kolkata - Rabindra Sarobar', 'Kolkata - Victoria',
+  'Kota', 'Kozhikode',
+  // Lucknow (6 stations)
+  'Lucknow', 'Lucknow - Ambedkar University', 'Lucknow - Central School',
+  'Lucknow - Gomti Nagar', 'Lucknow - Kukrail', 'Lucknow - Lalbagh',
+  'Lucknow - Talkatora',
+  'Ludhiana', 'Ludhiana - PAU',
+  // Others M
+  'Madurai', 'Maheshtala', 'Malegaon', 'Mangalore', 'Meerut', 'Moradabad',
+  // Mumbai (16 stations)
+  'Mumbai', 'Mumbai - Airport', 'Mumbai - Andheri', 'Mumbai - Bandra Kurla Complex',
   'Mumbai - Bhandup', 'Mumbai - Borivali', 'Mumbai - Colaba', 'Mumbai - Deonar',
   'Mumbai - Kurla', 'Mumbai - Malad', 'Mumbai - Mazgaon', 'Mumbai - Mulund',
   'Mumbai - Navy Nagar Colaba', 'Mumbai - Powai', 'Mumbai - Siddharth Nagar Worli',
   'Mumbai - Sion', 'Mumbai - Worli',
-  'Mysore', 'Nagpur', 'Nanded', 'Nashik', 'Nellore', 'Noida',
-  'Patna', 'Pimpri-Chinchwad', 'Pune', 'Raipur', 'Rajkot', 'Ranchi',
-  'Saharanpur', 'Salem', 'Sangli', 'Siliguri', 'Solapur', 'Srinagar',
-  'Surat', 'Thane', 'Thiruvananthapuram', 'Tiruchirappalli', 'Tirunelveli',
-  'Udaipur', 'Ujjain', 'Ulhasnagar', 'Vadodara', 'Varanasi', 'Vijayawada',
-  'Visakhapatnam', 'Warangal',
+  'Mysore',
+  'Nagpur', 'Nagpur - Civil Lines',
+  'Nanded', 'Nashik', 'Nashik - Gangapur Road', 'Nellore',
+  // Noida (7 stations)
+  'Noida', 'Noida - Indirapuram', 'Noida - Knowledge Park-V',
+  'Noida - Mother Dairy Plant', 'Noida - Sector-1', 'Noida - Sector-62',
+  'Noida - Sector-116', 'Noida - Sector-125',
+  // Patna (6 stations)
+  'Patna', 'Patna - IGSC Planetarium', 'Patna - Industrial Area',
+  'Patna - Muradpur', 'Patna - Rajbansi Nagar', 'Patna - Samanpura', 'Patna - Shikarpur',
+  'Pimpri-Chinchwad', 'Pune', 'Raipur', 'Rajkot', 'Ranchi',
+  'Saharanpur', 'Salem', 'Sangli', 'Siliguri', 'Solapur', 'Srinagar', 'Surat',
+  'Thane',
+  // Thiruvananthapuram (2 stations)
+  'Thiruvananthapuram', 'Thiruvananthapuram - Kariavattom', 'Thiruvananthapuram - Plammoodu',
+  'Tiruchirappalli', 'Tirunelveli',
+  'Udaipur', 'Ujjain', 'Ulhasnagar', 'Vadodara',
+  // Varanasi (4 stations)
+  'Varanasi', 'Varanasi - Ardhali Bazar', 'Varanasi - Banaras Hindu University',
+  'Varanasi - Bhelupur', 'Varanasi - Maldahiya',
+  'Vijayawada',
+  'Visakhapatnam', 'Visakhapatnam - GVM Corporation',
+  'Warangal',
 ];
 
 // ── Inline searchable city dropdown ──────────────────────────────────────────
