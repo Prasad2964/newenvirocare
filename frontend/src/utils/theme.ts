@@ -62,10 +62,12 @@ export function getOrbPulseDuration(aqi: number): number {
 
 export function getRiskColor(level: string): string {
   switch (level) {
-    case 'low': return '#4ADE80';
-    case 'medium': return '#FACC15';
-    case 'high': return '#FB923C';
-    case 'dangerous': return '#DC2626';
-    default: return '#FFFFFF';
+    case 'low':      return '#4ADE80';
+    case 'moderate':
+    case 'medium':   return '#FACC15';
+    case 'high':     return '#FB923C';
+    case 'critical':
+    case 'dangerous':return '#DC2626';
+    default:         return '#FFFFFF';
   }
 }

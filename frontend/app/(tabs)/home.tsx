@@ -19,6 +19,7 @@ import RiskGauge from '../../src/components/RiskGauge';
 import PressableScale from '../../src/components/PressableScale';
 import { SkeletonDashboard } from '../../src/components/Skeleton';
 import { COLORS, FONTS, FONT_SIZE, SPACING, RADIUS, getAqiTheme as getTokenTheme } from '../../src/utils/tokens';
+import { calculatePersonalizedRisk } from '../../src/utils/riskEngine';
 
 // GPS first, IP geo as fallback. Returns coords when GPS succeeds so the
 // caller can hit WAQI's geo endpoint for the nearest station.
@@ -161,13 +162,14 @@ export default function HomeScreen() {
       const aqiEndpoint = c
         ? `/api/aqi/geo?lat=${c.lat}&lon=${c.lon}`
         : `/api/aqi/${encodeURIComponent(activeCity)}`;
-      const [aqi, risk, profile] = await Promise.all([
+
+      // Fetch AQI and health profile in parallel — no risk-assessment call here.
+      const [aqi, profile] = await Promise.all([
         api.get(aqiEndpoint),
-        api.post('/api/risk-assessment', { city: activeCity }).catch(() => null),
         api.get('/api/health-profile').catch(() => null),
       ]);
       setAqiData(aqi);
-      if (risk) setRiskData(risk);
+
       if (profile) {
         conditionsRef.current = profile.conditions || [];
         healthProfileRef.current = {
@@ -179,9 +181,33 @@ export default function HomeScreen() {
         };
       }
 
+      // Calculate risk locally using real AQI + pollutants + user conditions.
+      // This is synchronous and never uses fake data.
+      let localRisk: ReturnType<typeof calculatePersonalizedRisk> | undefined;
+      if (aqi) {
+        const hp = healthProfileRef.current;
+        localRisk = calculatePersonalizedRisk(aqi, {
+          conditions: hp.conditions,
+          medications: hp.medications,
+          age: hp.age,
+        });
+        // Set score immediately so the gauge is never blank.
+        setRiskData((prev: any) => ({ ...prev, risk: localRisk }));
+
+        // Non-blocking: fetch AI advice from backend, passing real data so it
+        // never touches generate_city_aqi().
+        api.post('/api/risk-assessment', {
+          city: activeCity,
+          aqi_data: aqi,
+          conditions: hp.conditions,
+        })
+          .then((res: any) => { if (res?.advice) setRiskData((prev: any) => ({ ...prev, advice: res.advice })); })
+          .catch(() => {});
+      }
+
       api.post('/api/activity', {
         type: 'aqi_check', city: activeCity,
-        aqi: aqi?.aqi, risk_level: risk?.risk?.level || 'low',
+        aqi: aqi?.aqi, risk_level: localRisk?.level ?? 'low',
         description: `AQI ${aqi?.aqi} - ${aqi?.level}`,
       }).catch(() => {});
 
@@ -373,8 +399,8 @@ export default function HomeScreen() {
   const aqi = aqiData?.aqi || 50;
   const theme = getAqiTheme(aqi);
   const tokenTheme = getTokenTheme(aqi);
-  const riskScore = riskData?.risk?.score || (aqi / 5);
-  const riskLevel = riskData?.risk?.level || 'low';
+  const riskScore = riskData?.risk?.score ?? 0;
+  const riskLevel = riskData?.risk?.level ?? 'low';
 
   return (
     <View testID="home-screen" style={styles.container}>

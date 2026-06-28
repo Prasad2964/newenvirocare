@@ -81,6 +81,11 @@ class CityCompareRequest(BaseModel):
 
 class RiskAssessmentRequest(BaseModel):
     city: str
+    # Real AQI data from the frontend (already fetched from WAQI).
+    # When provided, we use this directly instead of generating fake data.
+    aqi_data: Optional[dict] = None
+    # Conditions from health profile (avoids dead Supabase read).
+    conditions: Optional[List[str]] = None
 
 class RoutineAdjustRequest(BaseModel):
     city: str
@@ -466,37 +471,67 @@ async def fetch_city_aqi(city: str) -> dict:
 
 # ===================== RISK CALCULATOR =====================
 
-CONDITION_MULTIPLIERS = {
-    "asthma": 2.0, "copd": 2.5, "heart disease": 1.8,
-    "diabetes": 1.3, "hypertension": 1.4, "lung disease": 2.2,
-    "bronchitis": 1.9, "allergies": 1.5, "pregnancy": 1.6,
-    "elderly": 1.5, "child": 1.4,
+# Condition → pollutant sensitivity weights.
+# (safe, danger): linear interpolation. skipZero=True means 0 → not reported, skip.
+_COND_WEIGHTS = {
+    'asthma':     [('pm25',12,55,.35,True),  ('o3',50,100,.28,True), ('aqi',50,200,.22,False), ('humidity',60,90,.15,False)],
+    'copd':       [('pm25',10,35,.30,True),  ('so2',15,75,.25,True), ('co',2,9,.25,True),      ('aqi',50,150,.20,False)],
+    'heart':      [('pm25',8,35,.35,True),   ('no2',25,100,.25,True),('co',1,9,.22,True),       ('temperature',28,42,.10,False),('aqi',50,200,.08,False)],
+    'hypertens':  [('no2',25,100,.38,True),  ('pm25',12,55,.35,True),('aqi',75,200,.27,False)],
+    'diabet':     [('temperature',28,42,.40,False),('pm25',25,75,.33,True),('aqi',75,200,.27,False)],
+    'lung':       [('pm25',10,35,.30,True),  ('so2',10,75,.28,True), ('o3',50,100,.22,True),    ('aqi',50,150,.20,False)],
+    'bronchitis': [('pm25',15,55,.35,True),  ('humidity',65,90,.25,False),('so2',15,75,.20,True),('aqi',50,200,.20,False)],
+    'allerg':     [('pm10',30,150,.35,True), ('o3',50,100,.28,True), ('humidity',55,85,.22,False),('aqi',75,200,.15,False)],
+    'pregnan':    [('pm25',8,35,.35,True),   ('no2',20,75,.30,True), ('co',1,5,.20,True),        ('aqi',50,150,.15,False)],
 }
 
-def calculate_risk_score(aqi: int, conditions: List[str]) -> dict:
-    base_risk = min(100, (aqi / 500) * 100)
-    multiplier = 1.0
-    risk_conditions = []
+def calculate_risk_score(aqi_data: dict, conditions: List[str]) -> dict:
+    """Score 0-100 derived from real pollutant levels mapped to each health condition."""
+    aqi  = aqi_data.get('aqi', 0)
+    poll = aqi_data.get('pollutants', {})
+    wx   = aqi_data.get('weather', {})
+    flat = {
+        'aqi': aqi, 'pm25': poll.get('pm25', 0), 'pm10': poll.get('pm10', 0),
+        'no2': poll.get('no2', 0), 'so2': poll.get('so2', 0),
+        'co': poll.get('co', 0), 'o3': poll.get('o3', 0),
+        'temperature': wx.get('temperature', 25), 'humidity': wx.get('humidity', 50),
+    }
+
+    def _score_condition(c_lower):
+        weights = next((v for k, v in _COND_WEIGHTS.items() if k in c_lower), None)
+        if not weights:
+            return min(100, round((aqi / 300) * 100)), ['AQI']
+        w_sum, w_total, drivers = 0.0, 0.0, []
+        for key, safe, danger, w, skip_zero in weights:
+            val = flat.get(key, 0)
+            if skip_zero and val == 0:
+                continue
+            norm = max(0.0, min(1.0, (val - safe) / (danger - safe)))
+            w_sum += norm * w; w_total += w
+            if norm > 0.25: drivers.append(key.upper().replace('PM25','PM2.5'))
+        if w_total == 0:
+            return min(100, round((aqi / 300) * 100)), ['AQI']
+        score = min(100, round((w_sum / w_total) * 100))
+        return score, drivers if drivers else ['AQI']
+
+    if not conditions:
+        score = min(100, round((aqi / 300) * 100))
+        level = 'low' if score<=25 else 'moderate' if score<=50 else 'high' if score<=75 else 'critical'
+        return {'score': score, 'level': level, 'primary_driver': 'AQI', 'breakdown': []}
+
+    breakdown = []
     for c in conditions:
-        c_lower = c.lower().strip()
-        for key, mult in CONDITION_MULTIPLIERS.items():
-            if key in c_lower:
-                multiplier = max(multiplier, mult)
-                risk_conditions.append({"condition": c, "impact": f"{mult}x risk"})
+        s, drivers = _score_condition(c.lower().strip())
+        breakdown.append({'condition': c, 'score': s, 'drivers': drivers})
 
-    final_risk = min(100, base_risk * multiplier)
-
-    if final_risk <= 25: level = "low"
-    elif final_risk <= 50: level = "medium"
-    elif final_risk <= 75: level = "high"
-    else: level = "dangerous"
-
+    worst = max(breakdown, key=lambda x: x['score'])
+    score = worst['score']
+    level = 'low' if score<=25 else 'moderate' if score<=50 else 'high' if score<=75 else 'critical'
     return {
-        "score": round(final_risk, 1),
-        "level": level,
-        "base_risk": round(base_risk, 1),
-        "multiplier": multiplier,
-        "affected_conditions": risk_conditions
+        'score': score, 'level': level,
+        'primary_driver': worst['drivers'][0] if worst['drivers'] else 'AQI',
+        'worst_condition': worst['condition'],
+        'breakdown': breakdown,
     }
 
 # ===================== AI HELPERS =====================
@@ -820,20 +855,35 @@ async def delete_health_profile(user=Depends(get_current_user)):
 
 @api_router.post("/risk-assessment")
 async def risk_assessment(req: RiskAssessmentRequest, user=Depends(get_current_user)):
-    aqi_data = generate_city_aqi(req.city)
-    result = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).execute()
-    profile = ((getattr(result, 'data', None) or []) or [None])[0] or {}
-    conditions = profile.get("conditions", [])
+    # Use real AQI data passed from the frontend (already fetched from WAQI).
+    # Only fall back to fetch_city_aqi if the frontend didn't supply it.
+    if req.aqi_data:
+        aqi_data = req.aqi_data
+    else:
+        aqi_data = await fetch_city_aqi(req.city)
 
-    risk = calculate_risk_score(aqi_data["aqi"], conditions)
+    # Use conditions passed from the frontend health profile.
+    # Only try Supabase if not provided (avoids dead-Supabase failures).
+    if req.conditions is not None:
+        conditions = req.conditions
+    else:
+        try:
+            result = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).execute()
+            profile_row = ((getattr(result, 'data', None) or []) or [None])[0] or {}
+            conditions = profile_row.get("conditions", [])
+        except Exception:
+            conditions = []
+
+    profile = {"conditions": conditions}
+    risk = calculate_risk_score(aqi_data, conditions)
     advice = await get_ai_advice(aqi_data, profile, "risk assessment")
 
     return {
         "aqi": aqi_data,
         "risk": risk,
         "advice": advice,
-        "mask": aqi_data["mask"],
-        "emergency": aqi_data["is_emergency"]
+        "mask": aqi_data.get("mask", {}),
+        "emergency": aqi_data.get("is_emergency", False),
     }
 
 # ===================== ROUTINE ENDPOINTS =====================
@@ -866,9 +916,12 @@ async def delete_routine(routine_id: str, user=Depends(get_current_user)):
 @api_router.post("/routines/ai-adjust")
 async def ai_adjust_routines(req: RoutineAdjustRequest, user=Depends(get_current_user)):
     routines = supabase.table("routines").select("*").eq("user_id", user["user_id"]).limit(100).execute().data
-    aqi_data = generate_city_aqi(req.city)
-    _hp = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).execute()
-    health_profile = ((getattr(_hp, 'data', None) or [None])[0]) or {}
+    aqi_data = await fetch_city_aqi(req.city)
+    try:
+        _hp = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).execute()
+        health_profile = ((getattr(_hp, 'data', None) or [None])[0]) or {}
+    except Exception:
+        health_profile = {}
 
     adjustments = []
     for r in routines:
@@ -1099,14 +1152,17 @@ async def get_symptoms(user=Depends(get_current_user)):
 
 @api_router.post("/travel/plan")
 async def plan_travel(req: TravelRequest, user=Depends(get_current_user)):
-    origin_aqi = generate_city_aqi(req.origin)
-    dest_aqi = generate_city_aqi(req.destination)
-    _p = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).execute()
-    profile = ((getattr(_p, 'data', None) or [None])[0]) or {}
+    origin_aqi = await fetch_city_aqi(req.origin)
+    dest_aqi = await fetch_city_aqi(req.destination)
+    try:
+        _p = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).execute()
+        profile = ((getattr(_p, 'data', None) or [None])[0]) or {}
+    except Exception:
+        profile = {}
     conditions = profile.get("conditions", [])
 
-    origin_risk = calculate_risk_score(origin_aqi["aqi"], conditions)
-    dest_risk = calculate_risk_score(dest_aqi["aqi"], conditions)
+    origin_risk = calculate_risk_score(origin_aqi, conditions)
+    dest_risk = calculate_risk_score(dest_aqi, conditions)
 
     travel_advice = await get_ai_advice(
         dest_aqi, profile,
@@ -1246,8 +1302,8 @@ async def mark_read(notification_id: str, user=Depends(get_current_user)):
 async def get_travel_hotspots(user=Depends(get_current_user), body: dict = {}):
     origin = body.get("origin", "Mumbai")
     destination = body.get("destination", "Delhi")
-    origin_aqi = generate_city_aqi(origin)
-    dest_aqi = generate_city_aqi(destination)
+    origin_aqi = await fetch_city_aqi(origin)
+    dest_aqi = await fetch_city_aqi(destination)
 
     random.seed(hash(origin + destination + str(datetime.now(timezone.utc).date())))
     midpoints = []
