@@ -11,68 +11,9 @@ import Animated, {
   withSpring, withRepeat, withSequence, Easing, FadeInDown,
   interpolate,
 } from 'react-native-reanimated';
-import Svg, { Path } from 'react-native-svg';
-import * as Google from 'expo-auth-session/providers/google';
-import * as AuthSession from 'expo-auth-session';
-import * as WebBrowser from 'expo-web-browser';
 import { useAuth } from '../src/context/AuthContext';
 import { showToast } from '../src/components/Toast';
 import { COLORS, FONTS, FONT_SIZE, SPACING, RADIUS } from '../src/utils/tokens';
-
-WebBrowser.maybeCompleteAuthSession();
-
-// Isolated component — Google hook only runs when Client ID actually exists
-function GoogleButton({
-  loading,
-  onStart,
-  onSuccess,
-  onFail,
-}: {
-  loading: boolean;
-  onStart: () => void;
-  onSuccess: (idToken: string, accessToken: string) => void;
-  onFail: () => void;
-}) {
-  const redirectUri = AuthSession.makeRedirectUri();
-  console.log('[Google OAuth] redirectUri:', redirectUri);
-
-  const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
-  const [, response, promptAsync] = Google.useAuthRequest({
-    webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID!,
-    iosClientId: iosClientId || undefined,
-    redirectUri,
-    scopes: ['openid', 'profile', 'email'],
-  });
-
-  useEffect(() => {
-    if (!response) return;
-    if (response.type === 'success') {
-      const idToken = response.params?.id_token ?? response.authentication?.idToken ?? '';
-      const accessToken = response.params?.access_token ?? response.authentication?.accessToken ?? '';
-      onSuccess(idToken, accessToken);
-    } else {
-      onFail();
-    }
-  }, [response]);
-
-  return (
-    <TouchableOpacity style={styles.googleBtn} onPress={() => { onStart(); promptAsync(); }} disabled={loading} activeOpacity={0.85}>
-      {loading ? <ActivityIndicator size="small" color="#444" /> : <><GoogleLogo size={20} /><Text style={styles.googleBtnText}>Continue with Google</Text></>}
-    </TouchableOpacity>
-  );
-}
-
-// Google "G" Logo SVG
-function GoogleLogo({ size = 20 }: { size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 48 48">
-      <Path d="M44.5 20H24v8.5h11.8C34.7 33.9 30.1 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 4.1 29.6 2 24 2 11.8 2 2 11.8 2 24s9.8 22 22 22c11 0 21-8 21-22 0-1.3-.2-2.7-.5-4z" fill="#FFC107" />
-      <Path d="M5.3 14.7l7.1 5.2C14.1 16.3 18.7 13 24 13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 4.1 29.6 2 24 2 15.4 2 8.1 7.3 5.3 14.7z" fill="#FF3D00" />
-      <Path d="M24 46c5.4 0 10.3-1.8 14.1-5l-6.9-5.7C29.1 37 26.7 38 24 38c-6 0-11.1-4-12.9-9.5l-7 5.4C7 41 14.7 46 24 46z" fill="#4CAF50" />
-      <Path d="M44.5 20H24v8.5h11.8c-1 3-3 5.5-5.6 7.1l6.9 5.7C41.1 38 46 31.8 46 24c0-1.3-.2-2.7-.5-4z" fill="#1976D2" />
-    </Svg>
-  );
-}
 
 // Floating Label Input Component
 function FloatingLabelInput({
@@ -149,10 +90,8 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
-  const { login, loginWithGoogle, isFirstLaunch } = useAuth();
+  const { login, isFirstLaunch } = useAuth();
   const router = useRouter();
-
 
   // Animated orb
   const orbScale = useSharedValue(0.9);
@@ -204,18 +143,6 @@ export default function LoginScreen() {
     }
   }
 
-  async function handleGoogleSuccess(idToken: string, accessToken: string) {
-    try {
-      await loginWithGoogle(idToken, accessToken);
-      showToast('Welcome!', 'success');
-      router.replace(isFirstLaunch ? '/permissions' : '/(tabs)/home');
-    } catch (e: any) {
-      showToast(e.message || 'Google sign-in failed', 'error');
-    } finally {
-      setGoogleLoading(false);
-    }
-  }
-
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safe}>
@@ -245,34 +172,6 @@ export default function LoginScreen() {
               <Text style={styles.title}>Welcome Back</Text>
               <Text style={styles.subtitle}>Sign in to monitor your environment</Text>
 
-              {/* Google Sign-In Button — hide on native iOS without iOS client ID */}
-              {process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID && (Platform.OS === 'web' || Platform.OS === 'android' || process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID) ? (
-                <GoogleButton
-                  loading={googleLoading}
-                  onStart={() => setGoogleLoading(true)}
-                  onSuccess={handleGoogleSuccess}
-                  onFail={() => { showToast('Google sign-in cancelled', 'info'); setGoogleLoading(false); }}
-                />
-              ) : (
-                <TouchableOpacity
-                  testID="google-signin-btn"
-                  style={[styles.googleBtn, { opacity: 0.6 }]}
-                  onPress={() => showToast('Google Sign-In not configured yet', 'info')}
-                  activeOpacity={0.85}
-                >
-                  <GoogleLogo size={20} />
-                  <Text style={styles.googleBtnText}>Continue with Google</Text>
-                </TouchableOpacity>
-              )}
-
-              {/* Divider */}
-              <View style={styles.divider}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>or</Text>
-                <View style={styles.dividerLine} />
-              </View>
-
-              {/* Floating Label Inputs */}
               <FloatingLabelInput
                 testID="login-email-input"
                 label="Email Address"
@@ -387,49 +286,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
     color: COLORS.textSecondary,
     marginBottom: SPACING.xxl,
-  },
-
-  // Google Button
-  googleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 54,
-    borderRadius: RADIUS.md,
-    backgroundColor: '#FFFFFF',
-    gap: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
-    marginBottom: SPACING.xl,
-  },
-  googleBtnText: {
-    fontSize: FONT_SIZE.md + 1,
-    fontFamily: FONTS.bodySemibold,
-    color: '#3C4043',
-    letterSpacing: 0.2,
-  },
-
-  // Divider
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: SPACING.xl,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: COLORS.border,
-  },
-  dividerText: {
-    color: COLORS.textMuted,
-    fontSize: FONT_SIZE.sm,
-    fontFamily: FONTS.bodyMedium,
-    paddingHorizontal: SPACING.lg,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
   },
 
   // Floating Label Input
