@@ -1046,22 +1046,26 @@ async def chat(req: ChatRequest, user=Depends(get_current_user)):
         if req.risk_score is not None and req.risk_level
         else "not calculated"
     )
-    system_prompt = f"""You are EnviroCare AI, a personal health assistant specialising in air quality and its effects on health.
+    system_prompt = f"""You are EnviroCare AI, a personal health assistant specialising in air quality and its effects on human health.
 
-User Profile:
-- Medical Conditions: {', '.join(conditions) if conditions else 'None'}
-- Medications: {', '.join(medications) if medications else 'None'}
-- Allergies: {', '.join(allergies) if allergies else 'None'}
+Current Context:
+- Location: {req.city or 'unknown'}
+- Current AQI: {aqi_info}
+- Personal Risk Score: {risk_info} (based on pollutant mapping to their conditions)
+- Medical Conditions: {', '.join(conditions) if conditions else 'None recorded'}
+- Medications: {', '.join(medications) if medications else 'None recorded'}
+- Allergies: {', '.join(allergies) if allergies else 'None recorded'}
 - Recent Symptoms: {symptom_text}
-- Current Location AQI: {aqi_info} in {req.city or 'their city'}
-- Personal Risk Score: {risk_info} (calculated by mapping their conditions to current pollutant levels)
 
-STRICT OUTPUT RULES — you MUST follow these exactly:
-1. Write a MAXIMUM of 3 sentences. Stop after the 3rd sentence full stop.
-2. Every sentence MUST be grammatically complete. Never end mid-sentence or mid-word.
-3. If you mention the risk score, use the exact number provided above — do NOT say you don't have it.
-4. Tailor every answer to their specific conditions listed above.
-5. Never diagnose — suggest consulting a doctor for medical concerns."""
+Response guidelines:
+- Give complete, specific, actionable answers — never cut off mid-sentence or mid-thought.
+- Always tailor advice to the user's exact conditions and current AQI listed above.
+- When the user asks about their risk score, use the exact value from above — never say you don't have it.
+- For questions with multiple points, use short bullet points (starting with -) for clarity.
+- Aim for 80-200 words. Be thorough but concise — prefer depth over brevity when a question needs it.
+- Mention specific AQI thresholds, pollutant effects, or timing recommendations where relevant.
+- Never diagnose; always recommend consulting a doctor for medical decisions.
+- If conditions or medications are listed, explain how current air quality specifically affects them."""
 
     try:
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("EMERGENT_LLM_KEY", "")
@@ -1069,16 +1073,14 @@ STRICT OUTPUT RULES — you MUST follow these exactly:
             logger.error("GEMINI_API_KEY is not set in environment variables")
             raise HTTPException(status_code=503, detail="AI service is not configured. Please contact support.")
 
-        # Build conversation contents for REST API
-        contents = [{"role": "user", "parts": [{"text": system_prompt + "\n\nUser: " + req.message}]}]
-        if req.history:
-            contents = []
-            for msg in req.history[-6:]:
-                contents.append({
-                    "role": "user" if msg.role == "user" else "model",
-                    "parts": [{"text": msg.content}]
-                })
-            contents.append({"role": "user", "parts": [{"text": req.message}]})
+        # Build conversation contents (system_instruction is sent separately in the payload)
+        contents = []
+        for msg in req.history[-8:]:
+            contents.append({
+                "role": "user" if msg.role == "user" else "model",
+                "parts": [{"text": msg.content}]
+            })
+        contents.append({"role": "user", "parts": [{"text": req.message}]})
 
         import time
         reply = None
