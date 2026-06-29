@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   ScrollView, ActivityIndicator, Alert, KeyboardAvoidingView,
@@ -16,7 +16,6 @@ import {
 // ─── constants ───────────────────────────────────────────────────────────────
 
 const ACTIVITY_TYPES = ['outdoor', 'indoor', 'commute'] as const;
-const SENSITIVITY    = ['low', 'medium', 'high'] as const;
 
 const RISK_CONFIG = {
   SAFE:    { color: '#4ADE80', bg: 'rgba(74,222,128,0.12)',   border: 'rgba(74,222,128,0.3)',   icon: 'checkmark-circle' as const },
@@ -63,21 +62,20 @@ export default function RoutineScreen() {
   const [refreshing, setRefreshing]     = useState(false);
 
   // add-form
-  const [showForm, setShowForm]       = useState(false);
-  const [adding, setAdding]           = useState(false);
-  const [activity, setActivity]       = useState('');
+  const [showForm, setShowForm]         = useState(false);
+  const [adding, setAdding]             = useState(false);
+  const [activity, setActivity]         = useState('');
   const [selectedTime, setSelectedTime] = useState('');
   const [selectedDate, setSelectedDate] = useState(getLocalDateString());
-  const [type, setType]               = useState<typeof ACTIVITY_TYPES[number]>('outdoor');
-  const [sensitivity, setSensitivity] = useState<typeof SENSITIVITY[number]>('medium');
+  const [type, setType]                 = useState<typeof ACTIVITY_TYPES[number]>('outdoor');
 
   // time-picker modal
   const [timePickerOpen, setTimePickerOpen] = useState(false);
 
   // reschedule bottom-sheet
-  const [rescheduleModal, setRescheduleModal]     = useState(false);
-  const [rescheduling, setRescheduling]           = useState(false);
-  const [rescheduleResult, setRescheduleResult]   = useState<any>(null);
+  const [rescheduleModal, setRescheduleModal]   = useState(false);
+  const [rescheduling, setRescheduling]         = useState(false);
+  const [rescheduleResult, setRescheduleResult] = useState<any>(null);
   const slideAnim = useRef(new Animated.Value(500)).current;
 
   const openSheet = (result: any) => {
@@ -113,8 +111,14 @@ export default function RoutineScreen() {
 
   // ── add ─────────────────────────────────────────────────────────────────────
   async function handleAdd() {
-    if (!activity.trim()) { Alert.alert('Missing', 'Please enter an activity name.'); return; }
-    if (!selectedTime)    { Alert.alert('Missing', 'Please select a time.'); return; }
+    if (!activity.trim()) {
+      Alert.alert('Missing', 'Please enter an activity name.');
+      return;
+    }
+    if (!selectedTime) {
+      Alert.alert('Missing', 'Please select a time from the dropdown.');
+      return;
+    }
     setAdding(true);
     try {
       await routineService.addRoutine({
@@ -122,15 +126,16 @@ export default function RoutineScreen() {
         time: selectedTime,
         type,
         date: selectedDate,
-        health_impact: sensitivity,
       });
-      setActivity(''); setSelectedTime(''); setSelectedDate(getLocalDateString());
-      setType('outdoor'); setSensitivity('medium');
+      setActivity('');
+      setSelectedTime('');
+      setSelectedDate(getLocalDateString());
+      setType('outdoor');
       setShowForm(false);
       fetchRoutines();
       fetchTodayCheck();
     } catch (e: any) {
-      Alert.alert('Error', e.message || 'Could not add routine.');
+      Alert.alert('Error', e.message || 'Could not add routine. Please try again.');
     } finally {
       setAdding(false);
     }
@@ -155,7 +160,7 @@ export default function RoutineScreen() {
 
   // ── render ──────────────────────────────────────────────────────────────────
   return (
-    <View testID="routine-screen" style={styles.container}>
+    <View style={styles.container}>
       <LinearGradient colors={['#0A1A2B', '#000']} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={styles.flex} edges={['top']}>
         <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -191,7 +196,14 @@ export default function RoutineScreen() {
                 <Text style={styles.emptyCardSub}>Add one below and we'll cross-check it with live AQI</Text>
               </GlassCard>
             ) : (
-              assessments.map(a => <AssessmentCard key={a.routine_id} a={a} onReschedule={handleReschedule} rescheduling={rescheduling} />)
+              assessments.map(a => (
+                <AssessmentCard
+                  key={a.routine_id}
+                  a={a}
+                  onReschedule={handleReschedule}
+                  rescheduling={rescheduling}
+                />
+              ))
             )}
 
             {/* ══ SECTION 2 — My Routines ══ */}
@@ -205,8 +217,8 @@ export default function RoutineScreen() {
                 <Text style={styles.emptyText}>No routines yet</Text>
               </View>
             ) : (
-              routines.map((r, i) => (
-                <GlassCard key={r.routine_id} testID={`routine-item-${i}`} style={styles.routineCard}>
+              routines.map(r => (
+                <GlassCard key={r.routine_id} style={styles.routineCard}>
                   <View style={styles.routineRow}>
                     <View style={styles.routineInfo}>
                       <Text style={styles.routineTime}>{r.time}</Text>
@@ -214,13 +226,8 @@ export default function RoutineScreen() {
                       <View style={styles.tagRow}>
                         <Tag
                           label={r.type}
-                          color={r.type === 'outdoor' ? '#4ADE80' : '#06B6D4'}
-                          bg={r.type === 'outdoor' ? 'rgba(74,222,128,0.1)' : 'rgba(6,182,212,0.1)'}
-                        />
-                        <Tag
-                          label={`${r.health_impact} sensitivity`}
-                          color={r.health_impact === 'high' ? '#F87171' : r.health_impact === 'medium' ? '#FBBF24' : '#4ADE80'}
-                          bg={r.health_impact === 'high' ? 'rgba(248,113,113,0.08)' : r.health_impact === 'medium' ? 'rgba(251,191,36,0.08)' : 'rgba(74,222,128,0.07)'}
+                          color={r.type === 'outdoor' ? '#4ADE80' : r.type === 'commute' ? '#FBBF24' : '#06B6D4'}
+                          bg={r.type === 'outdoor' ? 'rgba(74,222,128,0.1)' : r.type === 'commute' ? 'rgba(251,191,36,0.08)' : 'rgba(6,182,212,0.1)'}
                         />
                       </View>
                       {r.date ? (
@@ -230,11 +237,7 @@ export default function RoutineScreen() {
                         </View>
                       ) : null}
                     </View>
-                    <TouchableOpacity
-                      testID={`delete-routine-${i}`}
-                      onPress={() => handleDelete(r.routine_id, r.activity)}
-                      style={styles.deleteBtn}
-                    >
+                    <TouchableOpacity onPress={() => handleDelete(r.routine_id, r.activity)} style={styles.deleteBtn}>
                       <Ionicons name="trash-outline" size={18} color="rgba(255,255,255,0.28)" />
                     </TouchableOpacity>
                   </View>
@@ -244,13 +247,12 @@ export default function RoutineScreen() {
 
             {/* Add button / form */}
             {showForm ? (
-              <GlassCard testID="add-routine-form" style={styles.formCard}>
+              <GlassCard style={styles.formCard}>
                 <Text style={styles.formTitle}>New Routine</Text>
 
                 {/* Activity name */}
                 <Text style={styles.formLabel}>Activity</Text>
                 <TextInput
-                  testID="routine-activity-input"
                   style={styles.formInput}
                   placeholder="e.g. Morning Walk, Lunch, Cycling"
                   placeholderTextColor="rgba(255,255,255,0.28)"
@@ -261,9 +263,9 @@ export default function RoutineScreen() {
                 {/* Time dropdown trigger */}
                 <Text style={styles.formLabel}>Time</Text>
                 <TouchableOpacity style={styles.pickerTrigger} onPress={() => setTimePickerOpen(true)}>
-                  <Ionicons name="time-outline" size={16} color={selectedTime ? '#FFF' : 'rgba(255,255,255,0.3)'} />
+                  <Ionicons name="time-outline" size={16} color={selectedTime ? '#06B6D4' : 'rgba(255,255,255,0.3)'} />
                   <Text style={[styles.pickerTriggerText, !selectedTime && { color: 'rgba(255,255,255,0.28)' }]}>
-                    {selectedTime || 'Select time'}
+                    {selectedTime || 'Tap to select time'}
                   </Text>
                   <Ionicons name="chevron-down" size={14} color="rgba(255,255,255,0.3)" />
                 </TouchableOpacity>
@@ -298,30 +300,11 @@ export default function RoutineScreen() {
                   ))}
                 </View>
 
-                {/* Health sensitivity */}
-                <Text style={styles.formLabel}>Health Sensitivity</Text>
-                <View style={styles.segRow}>
-                  {SENSITIVITY.map(s => (
-                    <TouchableOpacity
-                      key={s}
-                      style={[styles.segBtn, sensitivity === s && styles.segBtnSens]}
-                      onPress={() => setSensitivity(s)}
-                    >
-                      <Text style={[styles.segText, sensitivity === s && styles.segTextSens]}>{s}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
                 <View style={styles.formActions}>
                   <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowForm(false)}>
                     <Text style={styles.cancelText}>Cancel</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    testID="save-routine-btn"
-                    style={styles.saveBtn}
-                    onPress={handleAdd}
-                    disabled={adding}
-                  >
+                  <TouchableOpacity style={styles.saveBtn} onPress={handleAdd} disabled={adding}>
                     {adding
                       ? <ActivityIndicator size="small" color="#000" />
                       : <Text style={styles.saveBtnText}>Add Routine</Text>}
@@ -329,7 +312,7 @@ export default function RoutineScreen() {
                 </View>
               </GlassCard>
             ) : (
-              <TouchableOpacity testID="show-add-routine-btn" style={styles.addBtn} onPress={() => setShowForm(true)}>
+              <TouchableOpacity style={styles.addBtn} onPress={() => setShowForm(true)}>
                 <Ionicons name="add" size={22} color="#4ADE80" />
                 <Text style={styles.addBtnText}>Add Routine</Text>
               </TouchableOpacity>
@@ -354,7 +337,7 @@ export default function RoutineScreen() {
             data={TIME_OPTIONS}
             keyExtractor={item => item}
             showsVerticalScrollIndicator={false}
-            initialScrollIndex={Math.max(0, TIME_OPTIONS.indexOf(selectedTime))}
+            initialScrollIndex={selectedTime ? Math.max(0, TIME_OPTIONS.indexOf(selectedTime)) : 10}
             getItemLayout={(_, index) => ({ length: 48, offset: 48 * index, index })}
             renderItem={({ item }) => (
               <TouchableOpacity
@@ -477,7 +460,11 @@ function AssessmentCard({ a, onReschedule, rescheduling }: {
       ) : null}
 
       {a.risk_level !== 'SAFE' && (
-        <TouchableOpacity style={styles.rescheduleBtn} onPress={() => onReschedule(a.routine_id)} disabled={rescheduling}>
+        <TouchableOpacity
+          style={styles.rescheduleBtn}
+          onPress={() => onReschedule(a.routine_id)}
+          disabled={rescheduling}
+        >
           {rescheduling
             ? <ActivityIndicator size="small" color="#FBBF24" />
             : <><Ionicons name="sparkles" size={13} color="#FBBF24" /><Text style={styles.rescheduleBtnText}>AI Reschedule</Text></>}
@@ -523,7 +510,8 @@ const styles = StyleSheet.create({
   rescheduleBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
     paddingHorizontal: 12, paddingVertical: 7,
-    backgroundColor: 'rgba(251,191,36,0.1)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(251,191,36,0.3)',
+    backgroundColor: 'rgba(251,191,36,0.1)', borderRadius: 10,
+    borderWidth: 1, borderColor: 'rgba(251,191,36,0.3)',
   },
   rescheduleBtnText: { fontSize: 12, fontWeight: '600', color: '#FBBF24' },
 
@@ -578,17 +566,15 @@ const styles = StyleSheet.create({
   dateChipText: { fontSize: 13, color: 'rgba(255,255,255,0.45)', fontWeight: '600' },
   dateChipTextActive: { color: '#4ADE80' },
 
-  // Segmented controls
+  // Segmented control (activity type)
   segRow: { flexDirection: 'row', gap: 8 },
   segBtn: {
     flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 12,
     backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
   },
   segBtnActive: { backgroundColor: 'rgba(74,222,128,0.1)', borderColor: 'rgba(74,222,128,0.35)' },
-  segBtnSens: { backgroundColor: 'rgba(251,191,36,0.1)', borderColor: 'rgba(251,191,36,0.35)' },
   segText: { fontSize: 13, color: 'rgba(255,255,255,0.38)', fontWeight: '600', textTransform: 'capitalize' },
   segTextActive: { color: '#4ADE80', fontWeight: '700' },
-  segTextSens: { color: '#FBBF24', fontWeight: '700' },
 
   formActions: { flexDirection: 'row', gap: 12, marginTop: 18 },
   cancelBtn: { flex: 1, alignItems: 'center', paddingVertical: 14, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.05)' },
@@ -606,12 +592,14 @@ const styles = StyleSheet.create({
   },
   timeSheetHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)',
+    paddingHorizontal: 20, paddingVertical: 16,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)',
   },
   timeSheetTitle: { fontSize: 16, fontWeight: '700', color: '#FFF' },
   timeOption: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, height: 48, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)',
+    paddingHorizontal: 20, height: 48,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)',
   },
   timeOptionActive: { backgroundColor: 'rgba(74,222,128,0.08)' },
   timeOptionText: { fontSize: 16, color: 'rgba(255,255,255,0.6)' },

@@ -5,8 +5,7 @@ export interface Routine {
   activity: string;
   time: string;
   type: string;
-  date: string;           // YYYY-MM-DD
-  health_impact: 'low' | 'medium' | 'high';
+  date: string; // YYYY-MM-DD
   created_at: string;
 }
 
@@ -43,8 +42,7 @@ export interface AddRoutinePayload {
   activity: string;
   time: string;
   type: string;
-  date: string;           // YYYY-MM-DD local date
-  health_impact: 'low' | 'medium' | 'high';
+  date: string; // YYYY-MM-DD local date
 }
 
 /** Returns today's date in YYYY-MM-DD using the device's local timezone. */

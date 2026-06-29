@@ -60,10 +60,9 @@ class RoutineRequest(BaseModel):
     activity: str
     time: str
     type: str = "outdoor"
-    date: str = ""                  # YYYY-MM-DD (local date); falls back to today UTC
-    days: List[str] = []            # kept for backward-compat; ignored when date is set
-    health_impact: str = "medium"   # low / medium / high
-    location: str = ""              # kept for compat; ignored — city from user settings
+    date: str = ""       # YYYY-MM-DD (local date); falls back to today UTC
+    days: List[str] = [] # kept for backward-compat; ignored when date is set
+    location: str = ""   # kept for compat; ignored — city resolved from user settings
 
 class SymptomRequest(BaseModel):
     symptoms: List[str]
@@ -899,15 +898,6 @@ async def risk_assessment(req: RiskAssessmentRequest, user=Depends(get_current_u
 
 @api_router.post("/routines")
 async def create_routine(req: RoutineRequest, user=Depends(get_current_user)):
-    # Resolve location: use provided location, fall back to user's default_city
-    location = req.location.strip()
-    if not location:
-        try:
-            s = supabase.table("settings").select("default_city").eq("user_id", user["user_id"]).execute()
-            location = ((getattr(s, 'data', None) or [{}])[0]).get("default_city", "Mumbai")
-        except Exception:
-            location = "Mumbai"
-
     routine_date = req.date.strip() or datetime.now(timezone.utc).date().isoformat()
 
     routine_id = str(uuid4())
@@ -918,10 +908,18 @@ async def create_routine(req: RoutineRequest, user=Depends(get_current_user)):
         "time": req.time,
         "type": req.type,
         "date": routine_date,
-        "health_impact": req.health_impact,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
-    supabase.table("routines").insert(routine).execute()
+    try:
+        supabase.table("routines").insert(routine).execute()
+    except Exception as e:
+        # If the `date` column doesn't exist yet (migration not run), fall back
+        # to inserting without it so the routine is at least saved.
+        if "date" in str(e).lower() and "column" in str(e).lower():
+            fallback = {k: v for k, v in routine.items() if k != "date"}
+            supabase.table("routines").insert(fallback).execute()
+        else:
+            raise HTTPException(status_code=500, detail=str(e))
     return routine
 
 @api_router.get("/routines")
