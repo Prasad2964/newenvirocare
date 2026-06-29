@@ -17,6 +17,7 @@ import bcrypt
 import base64 as b64lib
 import json
 import requests as http_requests
+import time as time_module
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -60,6 +61,8 @@ class RoutineRequest(BaseModel):
     time: str
     type: str = "outdoor"
     days: List[str] = ["Mon", "Tue", "Wed", "Thu", "Fri"]
+    health_impact: str = "medium"   # low / medium / high
+    location: str = ""              # city; falls back to user's default_city
 
 class SymptomRequest(BaseModel):
     symptoms: List[str]
@@ -895,6 +898,15 @@ async def risk_assessment(req: RiskAssessmentRequest, user=Depends(get_current_u
 
 @api_router.post("/routines")
 async def create_routine(req: RoutineRequest, user=Depends(get_current_user)):
+    # Resolve location: use provided location, fall back to user's default_city
+    location = req.location.strip()
+    if not location:
+        try:
+            s = supabase.table("settings").select("default_city").eq("user_id", user["user_id"]).execute()
+            location = ((getattr(s, 'data', None) or [{}])[0]).get("default_city", "Mumbai")
+        except Exception:
+            location = "Mumbai"
+
     routine_id = str(uuid4())
     routine = {
         "routine_id": routine_id,
@@ -903,6 +915,8 @@ async def create_routine(req: RoutineRequest, user=Depends(get_current_user)):
         "time": req.time,
         "type": req.type,
         "days": req.days,
+        "health_impact": req.health_impact,
+        "location": location,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     supabase.table("routines").insert(routine).execute()
@@ -968,6 +982,277 @@ async def ai_adjust_routines(req: RoutineAdjustRequest, user=Depends(get_current
         ai_summary = "Monitor air quality throughout the day."
 
     return {"adjustments": adjustments, "aqi": aqi_data, "ai_summary": ai_summary}
+
+# ─── Routine cooldown cache (in-process, resets on restart) ────────────────
+_routine_notif_cache: dict[str, float] = {}   # routine_id → last notif epoch
+ROUTINE_NOTIF_COOLDOWN = 6 * 60 * 60          # 6 hours in seconds
+
+def _can_notify_routine(routine_id: str) -> bool:
+    last = _routine_notif_cache.get(routine_id, 0)
+    return (time_module.time() - last) > ROUTINE_NOTIF_COOLDOWN
+
+def _mark_routine_notified(routine_id: str):
+    _routine_notif_cache[routine_id] = time_module.time()
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+@api_router.get("/routines/today-check")
+async def today_routine_check(user=Depends(get_current_user)):
+    """
+    For every routine scheduled today, fetch live AQI and use Gemini to produce
+    a personalised safety assessment (SAFE / CAUTION / AVOID).
+    """
+    today_abbr = datetime.now(timezone.utc).strftime("%a")   # "Mon", "Tue", …
+
+    try:
+        all_routines = supabase.table("routines").select("*") \
+            .eq("user_id", user["user_id"]).limit(100).execute().data or []
+    except Exception as e:
+        logger.error(f"today-check: routines fetch failed: {e}")
+        all_routines = []
+
+    todays = [r for r in all_routines if today_abbr in (r.get("days") or [])]
+    todays.sort(key=lambda r: r.get("time", "00:00"))
+
+    if not todays:
+        return {"date": datetime.now(timezone.utc).date().isoformat(), "assessments": []}
+
+    try:
+        hp = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).execute()
+        profile = ((getattr(hp, 'data', None) or [None])[0]) or {}
+    except Exception:
+        profile = {}
+
+    try:
+        s = supabase.table("settings").select("default_city").eq("user_id", user["user_id"]).execute()
+        default_city = ((getattr(s, 'data', None) or [{}])[0]).get("default_city", "Mumbai")
+    except Exception:
+        default_city = "Mumbai"
+
+    conditions  = profile.get("conditions", [])
+    medications = profile.get("medications", [])
+    age         = profile.get("age")
+
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("EMERGENT_LLM_KEY", "")
+
+    assessments = []
+    for r in todays:
+        city = (r.get("location") or "").strip() or default_city
+        try:
+            aqi_data = await fetch_city_aqi(city)
+        except Exception as e:
+            logger.warning(f"today-check: AQI fetch failed for {city}: {e}")
+            aqi_data = {"aqi": 0, "dominant_pollutant": "PM2.5", "iaqi": {}}
+
+        aqi_val   = aqi_data.get("aqi", 0)
+        dom_pol   = aqi_data.get("dominant_pollutant", "PM2.5")
+        iaqi      = aqi_data.get("iaqi", {})
+        pm25      = iaqi.get("pm25", {}).get("v", "N/A") if isinstance(iaqi, dict) else "N/A"
+        pm10      = iaqi.get("pm10", {}).get("v", "N/A") if isinstance(iaqi, dict) else "N/A"
+        o3        = iaqi.get("o3", {}).get("v", "N/A") if isinstance(iaqi, dict) else "N/A"
+
+        # Rule-based fallback in case Gemini is unavailable
+        if aqi_val <= 50:
+            fallback = {"risk_level": "SAFE",    "personalised_reason": f"AQI is {aqi_val} — air quality is good.", "best_time_window": "", "preventive_tip": "No special precautions needed."}
+        elif aqi_val <= 100:
+            fallback = {"risk_level": "CAUTION", "personalised_reason": f"AQI is {aqi_val} — moderate air quality.", "best_time_window": "06:00 - 07:00 AM", "preventive_tip": "Limit prolonged exertion outdoors."}
+        else:
+            fallback = {"risk_level": "AVOID",   "personalised_reason": f"AQI is {aqi_val} — unhealthy air quality.", "best_time_window": "05:00 - 06:30 AM", "preventive_tip": "Wear N95 mask if going out."}
+
+        ai_assessment = fallback
+        if api_key:
+            prompt = f"""You are a personal health advisor for air quality.
+
+Routine: {r['activity']} ({r.get('type','outdoor')}) at {r['time']}
+Health Sensitivity: {r.get('health_impact','medium')}
+City: {city}
+Current AQI: {aqi_val}
+Dominant Pollutant: {dom_pol}
+PM2.5: {pm25} µg/m³ | PM10: {pm10} µg/m³ | O3: {o3} ppb
+
+User Health Profile:
+- Medical Conditions: {', '.join(conditions) if conditions else 'None'}
+- Medications: {', '.join(medications) if medications else 'None'}
+- Age: {age if age else 'Not provided'}
+
+Based on the ACTUAL pollutant values above and the user's SPECIFIC medical conditions, respond with a JSON object (no markdown, no code blocks):
+{{
+  "risk_level": "SAFE" or "CAUTION" or "AVOID",
+  "personalised_reason": "1-2 sentences referencing actual pollutant values and their specific condition (e.g. PM2.5 at {pm25} µg/m³ is above safe limits for asthma)",
+  "best_time_window": "e.g. 05:30 - 06:30 AM (only if risk is CAUTION or AVOID, else empty string)",
+  "preventive_tip": "one specific actionable tip referencing their medications or condition if relevant"
+}}"""
+            try:
+                import json as _json
+                resp = http_requests.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}",
+                    json={
+                        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                        "generationConfig": {"maxOutputTokens": 400, "temperature": 0.3}
+                    },
+                    timeout=20
+                )
+                if resp.ok:
+                    raw = resp.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                    # strip possible markdown code fences
+                    raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+                    parsed = _json.loads(raw)
+                    ai_assessment = {
+                        "risk_level":          parsed.get("risk_level", fallback["risk_level"]).upper(),
+                        "personalised_reason": parsed.get("personalised_reason", fallback["personalised_reason"]),
+                        "best_time_window":    parsed.get("best_time_window", fallback["best_time_window"]),
+                        "preventive_tip":      parsed.get("preventive_tip", fallback["preventive_tip"]),
+                    }
+            except Exception as e:
+                logger.warning(f"today-check: Gemini failed for {r['activity']}: {e}")
+
+        risk = ai_assessment["risk_level"]
+        assessments.append({
+            "routine_id":          r["routine_id"],
+            "activity":            r["activity"],
+            "scheduled_time":      r["time"],
+            "type":                r.get("type", "outdoor"),
+            "health_impact":       r.get("health_impact", "medium"),
+            "city":                city,
+            "aqi":                 aqi_val,
+            "dominant_pollutant":  dom_pol,
+            "risk_level":          risk,
+            "personalised_reason": ai_assessment["personalised_reason"],
+            "best_time_window":    ai_assessment["best_time_window"],
+            "preventive_tip":      ai_assessment["preventive_tip"],
+            "should_notify":       risk in ("CAUTION", "AVOID") and _can_notify_routine(r["routine_id"]),
+        })
+
+    return {
+        "date": datetime.now(timezone.utc).date().isoformat(),
+        "assessments": assessments,
+    }
+
+
+@api_router.post("/routines/ai-reschedule")
+async def ai_reschedule_routine(user=Depends(get_current_user), body: dict = {}):
+    """
+    Given a routine_id, suggest the best reschedule time for today/tomorrow
+    using WAQI forecast data and the user's health profile.
+    """
+    routine_id = body.get("routine_id")
+    if not routine_id:
+        raise HTTPException(status_code=400, detail="routine_id is required")
+
+    try:
+        result = supabase.table("routines").select("*") \
+            .eq("routine_id", routine_id).eq("user_id", user["user_id"]).execute()
+        rows = getattr(result, 'data', None) or []
+    except Exception as e:
+        logger.error(f"ai-reschedule: DB fetch failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch routine")
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="Routine not found")
+    r = rows[0]
+
+    try:
+        s = supabase.table("settings").select("default_city").eq("user_id", user["user_id"]).execute()
+        default_city = ((getattr(s, 'data', None) or [{}])[0]).get("default_city", "Mumbai")
+    except Exception:
+        default_city = "Mumbai"
+
+    city = (r.get("location") or "").strip() or default_city
+
+    try:
+        aqi_data = await fetch_city_aqi(city)
+    except Exception:
+        aqi_data = {"aqi": 0, "dominant_pollutant": "PM2.5", "iaqi": {}, "forecast": {}}
+
+    try:
+        hp = supabase.table("health_profiles").select("*").eq("user_id", user["user_id"]).execute()
+        profile = ((getattr(hp, 'data', None) or [None])[0]) or {}
+    except Exception:
+        profile = {}
+
+    # Fetch other routines to avoid scheduling conflicts
+    try:
+        all_routines = supabase.table("routines").select("time,activity") \
+            .eq("user_id", user["user_id"]).execute().data or []
+        other_times = [x["time"] for x in all_routines if x.get("time") != r.get("time")]
+    except Exception:
+        other_times = []
+
+    conditions  = profile.get("conditions", [])
+    medications = profile.get("medications", [])
+
+    # Extract WAQI forecast if available
+    forecast = aqi_data.get("forecast", {})
+    pm25_forecast = forecast.get("daily", {}).get("pm25", [])
+    forecast_text = ""
+    if pm25_forecast:
+        today_fc = [f for f in pm25_forecast[:3]]
+        forecast_text = "PM2.5 forecast (daily avg): " + ", ".join(
+            [f"{f.get('day','')}: avg {f.get('avg','?')} µg/m³" for f in today_fc]
+        )
+    else:
+        forecast_text = ("AQI is typically lowest between 05:00-07:00 AM and 07:00-09:00 PM "
+                         "due to lower traffic and cooler temperatures.")
+
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("EMERGENT_LLM_KEY", "")
+    fallback = {
+        "routine_id":    routine_id,
+        "original_time": r.get("time", ""),
+        "suggested_time": "06:00 AM",
+        "reason":        "Early morning typically has lower AQI. Aim for before sunrise.",
+        "confidence":    "medium",
+    }
+
+    if not api_key:
+        return fallback
+
+    prompt = f"""You are a personal health routine scheduler.
+
+Routine to reschedule: {r['activity']} ({r.get('type','outdoor')})
+Original time: {r.get('time')}
+City: {city}
+Current AQI: {aqi_data.get('aqi', 'unknown')}
+{forecast_text}
+
+Other routines already scheduled: {', '.join(other_times) if other_times else 'None'}
+
+User Health Profile:
+- Conditions: {', '.join(conditions) if conditions else 'None'}
+- Medications: {', '.join(medications) if medications else 'None'}
+
+Suggest the best time to reschedule for today or early tomorrow morning to minimise pollution exposure.
+Avoid conflicts with other scheduled routines. Respond with JSON only (no markdown):
+{{
+  "suggested_time": "HH:MM AM/PM format",
+  "reason": "2-3 sentences explaining why this time is better, referencing forecast data and their health condition",
+  "confidence": "high" or "medium" or "low"
+}}"""
+
+    try:
+        import json as _json
+        resp = http_requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}",
+            json={
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {"maxOutputTokens": 300, "temperature": 0.4}
+            },
+            timeout=20
+        )
+        if resp.ok:
+            raw = resp.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+            raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+            parsed = _json.loads(raw)
+            return {
+                "routine_id":    routine_id,
+                "original_time": r.get("time", ""),
+                "suggested_time": parsed.get("suggested_time", fallback["suggested_time"]),
+                "reason":        parsed.get("reason", fallback["reason"]),
+                "confidence":    parsed.get("confidence", "medium"),
+            }
+    except Exception as e:
+        logger.warning(f"ai-reschedule: Gemini failed: {e}")
+
+    return fallback
 
 # ===================== CHAT ENDPOINTS =====================
 

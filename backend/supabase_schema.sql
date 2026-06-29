@@ -28,15 +28,21 @@ CREATE TABLE IF NOT EXISTS health_profiles (
 
 -- Routines (many per user)
 CREATE TABLE IF NOT EXISTS routines (
-    routine_id  TEXT PRIMARY KEY,
-    user_id     TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-    activity    TEXT NOT NULL,
-    time        TEXT NOT NULL,
-    type        TEXT DEFAULT 'outdoor',
-    days        TEXT[] DEFAULT '{}',
-    created_at  TIMESTAMPTZ DEFAULT NOW()
+    routine_id    TEXT PRIMARY KEY,
+    user_id       TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    activity      TEXT NOT NULL,
+    time          TEXT NOT NULL,
+    type          TEXT DEFAULT 'outdoor',
+    days          TEXT[] DEFAULT '{}',
+    health_impact TEXT DEFAULT 'medium',
+    location      TEXT DEFAULT '',
+    created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_routines_user_id ON routines(user_id);
+
+-- If updating an existing database, run:
+-- ALTER TABLE routines ADD COLUMN IF NOT EXISTS health_impact TEXT DEFAULT 'medium';
+-- ALTER TABLE routines ADD COLUMN IF NOT EXISTS location TEXT DEFAULT '';
 
 -- Symptom logs (many per user)
 CREATE TABLE IF NOT EXISTS symptoms (

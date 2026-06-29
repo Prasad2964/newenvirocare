@@ -108,6 +108,7 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [gamification, setGamification] = useState<any>(null);
   const [exposure, setExposure] = useState<any>(null);
+  const [todayRoutines, setTodayRoutines] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [city, setCity] = useState('');
   const [error, setError] = useState(false);
@@ -258,6 +259,11 @@ export default function HomeScreen() {
       ]);
       if (gam) setGamification(gam);
       if (exp) setExposure(exp);
+
+      // Today's routine check — non-blocking, best-effort
+      api.get('/api/routines/today-check')
+        .then((res: any) => { if (res?.assessments) setTodayRoutines(res.assessments.slice(0, 2)); })
+        .catch(() => {});
 
       if (aqi) {
         const pollutants = aqi.pollutants ?? {};
@@ -724,6 +730,34 @@ export default function HomeScreen() {
             </GlassCard>
           )}
 
+          {/* Today's Routines preview */}
+          {todayRoutines.length > 0 && (
+            <GlassCard testID="today-routines-card" glowColor="#06B6D4">
+              <TouchableOpacity
+                style={styles.cardHeader}
+                onPress={() => router.push('/(tabs)/routine')}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.cardTitle}>Today's Routines</Text>
+                <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+              </TouchableOpacity>
+              {todayRoutines.map((a: any) => {
+                const rColor = a.risk_level === 'AVOID' ? '#F87171' : a.risk_level === 'CAUTION' ? '#FBBF24' : '#4ADE80';
+                return (
+                  <View key={a.routine_id} style={styles.routinePreviewRow}>
+                    <View style={styles.routinePreviewLeft}>
+                      <Text style={styles.routinePreviewTime}>{a.scheduled_time}</Text>
+                      <Text style={styles.routinePreviewName}>{a.activity}</Text>
+                    </View>
+                    <View style={[styles.routinePreviewBadge, { backgroundColor: rColor + '18', borderColor: rColor + '50' }]}>
+                      <Text style={[styles.routinePreviewBadgeText, { color: rColor }]}>{a.risk_level}</Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </GlassCard>
+          )}
+
           {/* Gamification */}
           {gamification && (
             <GlassCard testID="gamification-card" glowColor={COLORS.warning}>
@@ -928,4 +962,17 @@ const styles = StyleSheet.create({
   scoreBar: { height: 6, backgroundColor: COLORS.glass, borderRadius: 3, overflow: 'hidden' },
   scoreBarFill: { height: '100%', backgroundColor: COLORS.warning, borderRadius: 3 },
   scoreLabel: { fontSize: FONT_SIZE.xs + 1, fontFamily: FONTS.mono, color: COLORS.textMuted, marginTop: 8, textAlign: 'center' },
+
+  // Today's Routines preview
+  routinePreviewRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)',
+  },
+  routinePreviewLeft: { flex: 1 },
+  routinePreviewTime: { fontSize: FONT_SIZE.xs, fontFamily: FONTS.mono, color: COLORS.textMuted, marginBottom: 2 },
+  routinePreviewName: { fontSize: FONT_SIZE.md, fontFamily: FONTS.bodySemibold, color: COLORS.textWhite },
+  routinePreviewBadge: {
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, borderWidth: 1,
+  },
+  routinePreviewBadgeText: { fontSize: FONT_SIZE.xs, fontFamily: FONTS.bodySemibold, fontWeight: '700' },
 });
