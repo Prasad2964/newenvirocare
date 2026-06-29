@@ -2,7 +2,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList,
   Modal, Animated, KeyboardAvoidingView, Platform, ActivityIndicator,
-  Dimensions, Pressable,
+  Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,14 +12,14 @@ import { TypingIndicator } from './TypingIndicator';
 import api from '../../utils/api';
 import { calculatePersonalizedRisk } from '../../utils/riskEngine';
 
-const { height: SCREEN_H } = Dimensions.get('window');
-const POPUP_H = SCREEN_H * 0.80;
+const WIN_W = 310;
+const WIN_H = 460;
 
 const SUGGESTED = [
-  'Is today safe for outdoor exercise?',
-  'What mask should I wear today?',
+  'Safe for exercise today?',
+  'What mask should I wear?',
   'Explain my risk score',
-  'How does AQI affect my condition?',
+  'AQI effect on my condition?',
 ];
 
 export default function FloatingChat() {
@@ -30,7 +30,8 @@ export default function FloatingChat() {
   const [riskScore, setRiskScore] = useState<number | null>(null);
   const [riskLevel, setRiskLevel] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
-  const slideAnim = useRef(new Animated.Value(POPUP_H)).current;
+  const scaleAnim = useRef(new Animated.Value(0.8)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
   const insets = useSafeAreaInsets();
 
   const { messages, loading, sendMessage, clearHistory, limitReached } = useChat(
@@ -63,22 +64,27 @@ export default function FloatingChat() {
 
   const openChat = useCallback(() => {
     setOpen(true);
-    Animated.spring(slideAnim, {
-      toValue: 0,
-      damping: 22,
-      mass: 0.85,
-      stiffness: 160,
-      useNativeDriver: true,
-    }).start();
-  }, [slideAnim]);
+    Animated.parallel([
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        damping: 16,
+        stiffness: 280,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [scaleAnim, opacityAnim]);
 
   const closeChat = useCallback(() => {
-    Animated.timing(slideAnim, {
-      toValue: POPUP_H,
-      duration: 260,
-      useNativeDriver: true,
-    }).start(() => setOpen(false));
-  }, [slideAnim]);
+    Animated.parallel([
+      Animated.timing(scaleAnim, { toValue: 0.8, duration: 160, useNativeDriver: true }),
+      Animated.timing(opacityAnim, { toValue: 0, duration: 160, useNativeDriver: true }),
+    ]).start(() => setOpen(false));
+  }, [scaleAnim, opacityAnim]);
 
   const handleSend = useCallback(async () => {
     if (!input.trim()) return;
@@ -87,27 +93,22 @@ export default function FloatingChat() {
     await sendMessage(text);
   }, [input, sendMessage]);
 
-  const contextLabel = [
-    city,
-    aqi != null && `AQI ${aqi}`,
-    riskScore != null && `Risk ${riskScore}/100`,
-  ].filter(Boolean).join(' · ');
+  // Bottom offset: above the tab bar (68) + FAB (52) + gap (12)
+  const windowBottom = insets.bottom + 68 + 52 + 12;
 
   return (
     <>
-      {/* Floating action button */}
+      {/* FAB */}
       <TouchableOpacity
         style={[styles.fab, { bottom: insets.bottom + 76 }]}
-        onPress={openChat}
+        onPress={open ? closeChat : openChat}
         activeOpacity={0.85}
       >
-        <Ionicons name="chatbubble-ellipses" size={22} color="#000" />
-        {messages.length > 0 && (
-          <View style={styles.fabBadge} />
-        )}
+        <Ionicons name={open ? 'close' : 'chatbubble-ellipses'} size={22} color="#000" />
+        {!open && messages.length > 0 && <View style={styles.fabBadge} />}
       </TouchableOpacity>
 
-      {/* Slide-up popup */}
+      {/* Corner popup */}
       <Modal
         visible={open}
         transparent
@@ -115,137 +116,131 @@ export default function FloatingChat() {
         statusBarTranslucent
         onRequestClose={closeChat}
       >
-        <Pressable style={styles.backdrop} onPress={closeChat}>
-          <Animated.View
-            style={[styles.popup, { height: POPUP_H, transform: [{ translateY: slideAnim }] }]}
-          >
-            <Pressable style={styles.popupInner}>
-              {/* Drag handle */}
-              <View style={styles.handle} />
+        {/* Invisible full-screen backdrop — tap to close */}
+        <Pressable style={StyleSheet.absoluteFill} onPress={closeChat} />
 
-              {/* Header */}
-              <View style={styles.headerRow}>
-                <View style={styles.headerLeft}>
-                  <View style={styles.aiIcon}>
-                    <Ionicons name="leaf" size={16} color="#4ADE80" />
-                  </View>
-                  <View>
-                    <Text style={styles.title}>AI Assistant</Text>
-                    {contextLabel ? (
-                      <Text style={styles.subtitle} numberOfLines={1}>{contextLabel}</Text>
-                    ) : (
-                      <Text style={styles.subtitle}>Air quality health advisor</Text>
-                    )}
-                  </View>
-                </View>
-                <View style={styles.headerActions}>
-                  <TouchableOpacity style={styles.iconBtn} onPress={clearHistory}>
-                    <Ionicons name="trash-outline" size={17} color="rgba(255,255,255,0.35)" />
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.iconBtn} onPress={closeChat}>
-                    <Ionicons name="close" size={21} color="rgba(255,255,255,0.55)" />
-                  </TouchableOpacity>
+        {/* Window anchored to bottom-right */}
+        <KeyboardAvoidingView
+          style={[styles.windowWrapper, { bottom: windowBottom, right: 12 }]}
+          behavior={Platform.OS === 'ios' ? 'position' : undefined}
+          pointerEvents="box-none"
+        >
+          <Animated.View
+            style={[
+              styles.window,
+              { opacity: opacityAnim, transform: [{ scale: scaleAnim }] },
+            ]}
+          >
+            {/* Header */}
+            <View style={styles.header}>
+              <View style={styles.headerLeft}>
+                <View style={styles.aiDot} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.title}>EnviroCare AI</Text>
+                  {(city || aqi != null) && (
+                    <Text style={styles.subtitle} numberOfLines={1}>
+                      {[city, aqi != null && `AQI ${aqi}`].filter(Boolean).join(' · ')}
+                    </Text>
+                  )}
                 </View>
               </View>
+              <View style={styles.headerActions}>
+                <TouchableOpacity style={styles.iconBtn} onPress={clearHistory} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name="trash-outline" size={15} color="rgba(255,255,255,0.3)" />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.iconBtn} onPress={closeChat} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name="close" size={18} color="rgba(255,255,255,0.5)" />
+                </TouchableOpacity>
+              </View>
+            </View>
 
-              <View style={styles.divider} />
+            <View style={styles.divider} />
 
-              <KeyboardAvoidingView
-                style={styles.flex}
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                keyboardVerticalOffset={20}
-              >
-                <FlatList
-                  ref={flatListRef}
-                  data={messages}
-                  keyExtractor={item => item.id}
-                  renderItem={({ item }: { item: Message }) => (
-                    <ChatBubble
-                      role={item.role}
-                      content={item.content}
-                      timestamp={item.timestamp}
-                      error={item.error}
-                    />
-                  )}
-                  contentContainerStyle={[
-                    styles.messageList,
-                    messages.length === 0 && { flexGrow: 1 },
-                  ]}
-                  onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-                  showsVerticalScrollIndicator={false}
-                  keyboardShouldPersistTaps="handled"
-                  ListEmptyComponent={
-                    <View style={styles.emptyState}>
-                      <Text style={styles.emptyTitle}>Ask EnviroCare AI</Text>
-                      <Text style={styles.emptySub}>
-                        Get advice based on your health profile and today's air quality
-                      </Text>
-                      <View style={styles.chipGrid}>
-                        {SUGGESTED.map((s, i) => (
-                          <TouchableOpacity
-                            key={i}
-                            style={styles.chip}
-                            onPress={() => sendMessage(s)}
-                          >
-                            <Text style={styles.chipText}>{s}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </View>
-                  }
-                  ListFooterComponent={loading ? <TypingIndicator /> : null}
+            {/* Messages */}
+            <FlatList
+              ref={flatListRef}
+              data={messages}
+              keyExtractor={item => item.id}
+              renderItem={({ item }: { item: Message }) => (
+                <ChatBubble
+                  role={item.role}
+                  content={item.content}
+                  timestamp={item.timestamp}
+                  error={item.error}
                 />
-
-                {/* Limit banner */}
-                {limitReached && (
-                  <View style={styles.limitBanner}>
-                    <Ionicons name="lock-closed" size={14} color="#FBBF24" />
-                    <Text style={styles.limitText}>Daily limit reached. Resets at midnight.</Text>
+              )}
+              style={styles.messageList}
+              contentContainerStyle={[
+                styles.messageListContent,
+                messages.length === 0 && { flexGrow: 1 },
+              ]}
+              onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={
+                <View style={styles.empty}>
+                  <Ionicons name="leaf" size={24} color="rgba(74,222,128,0.5)" style={{ marginBottom: 8 }} />
+                  <Text style={styles.emptyTitle}>Ask anything</Text>
+                  <Text style={styles.emptySub}>Personalised to your health profile & current AQI</Text>
+                  <View style={styles.chipGrid}>
+                    {SUGGESTED.map((s, i) => (
+                      <TouchableOpacity key={i} style={styles.chip} onPress={() => sendMessage(s)}>
+                        <Text style={styles.chipText}>{s}</Text>
+                      </TouchableOpacity>
+                    ))}
                   </View>
-                )}
-
-                {/* Input bar */}
-                <View style={[styles.inputRow, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]}>
-                  <TextInput
-                    style={styles.input}
-                    value={input}
-                    onChangeText={setInput}
-                    placeholder="Ask about air quality or your health..."
-                    placeholderTextColor="rgba(255,255,255,0.28)"
-                    multiline
-                    maxLength={500}
-                    editable={!limitReached && !loading}
-                    returnKeyType="send"
-                    blurOnSubmit={false}
-                    onSubmitEditing={handleSend}
-                  />
-                  <TouchableOpacity
-                    style={[
-                      styles.sendBtn,
-                      (!input.trim() || loading || limitReached) && styles.sendBtnDisabled,
-                    ]}
-                    onPress={handleSend}
-                    disabled={!input.trim() || loading || limitReached}
-                  >
-                    {loading
-                      ? <ActivityIndicator size="small" color="#000" />
-                      : <Ionicons name="send" size={16} color="#000" />
-                    }
-                  </TouchableOpacity>
                 </View>
-              </KeyboardAvoidingView>
-            </Pressable>
+              }
+              ListFooterComponent={loading ? <TypingIndicator /> : null}
+            />
+
+            {limitReached && (
+              <View style={styles.limitBanner}>
+                <Ionicons name="lock-closed" size={12} color="#FBBF24" />
+                <Text style={styles.limitText}>Daily limit reached</Text>
+              </View>
+            )}
+
+            <View style={styles.divider} />
+
+            {/* Input */}
+            <View style={styles.inputRow}>
+              <TextInput
+                style={styles.input}
+                value={input}
+                onChangeText={setInput}
+                placeholder="Ask about your air quality..."
+                placeholderTextColor="rgba(255,255,255,0.25)"
+                multiline
+                maxLength={500}
+                editable={!limitReached && !loading}
+                returnKeyType="send"
+                blurOnSubmit={false}
+                onSubmitEditing={handleSend}
+              />
+              <TouchableOpacity
+                style={[styles.sendBtn, (!input.trim() || loading || limitReached) && styles.sendBtnOff]}
+                onPress={handleSend}
+                disabled={!input.trim() || loading || limitReached}
+              >
+                {loading
+                  ? <ActivityIndicator size="small" color="#000" />
+                  : <Ionicons name="send" size={14} color="#000" />
+                }
+              </TouchableOpacity>
+            </View>
           </Animated.View>
-        </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
     </>
   );
 }
 
 const styles = StyleSheet.create({
+  /* FAB */
   fab: {
     position: 'absolute',
-    right: 20,
+    right: 16,
     width: 52,
     height: 52,
     borderRadius: 26,
@@ -261,8 +256,8 @@ const styles = StyleSheet.create({
   },
   fabBadge: {
     position: 'absolute',
-    top: 10,
-    right: 10,
+    top: 11,
+    right: 11,
     width: 8,
     height: 8,
     borderRadius: 4,
@@ -270,132 +265,129 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#4ADE80',
   },
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    justifyContent: 'flex-end',
+
+  /* Window positioning wrapper */
+  windowWrapper: {
+    position: 'absolute',
+    width: WIN_W,
   },
-  popup: {
-    backgroundColor: '#0A1520',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+
+  /* The popup card */
+  window: {
+    width: WIN_W,
+    height: WIN_H,
+    backgroundColor: '#0C1825',
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255,255,255,0.09)',
     overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.55,
+    shadowRadius: 24,
+    elevation: 20,
   },
-  popupInner: {
-    flex: 1,
-  },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    alignSelf: 'center',
-    marginTop: 10,
-    marginBottom: 14,
-  },
-  headerRow: {
+
+  /* Header */
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingBottom: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    gap: 8,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     flex: 1,
   },
-  aiIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: 'rgba(74,222,128,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(74,222,128,0.25)',
-    alignItems: 'center',
-    justifyContent: 'center',
+  aiDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#4ADE80',
+    shadowColor: '#4ADE80',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 4,
   },
-  title: { fontSize: 16, fontWeight: '700', color: '#FFF' },
-  subtitle: { fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1, maxWidth: 200 },
-  headerActions: { flexDirection: 'row', gap: 4 },
-  iconBtn: { padding: 8 },
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    marginHorizontal: 0,
-  },
-  flex: { flex: 1 },
-  messageList: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 4 },
-  emptyState: {
-    flex: 1,
-    alignItems: 'center',
-    paddingTop: 32,
-    paddingHorizontal: 20,
-  },
-  emptyTitle: { fontSize: 17, fontWeight: '700', color: '#FFF', marginBottom: 6 },
+  title: { fontSize: 13, fontWeight: '700', color: '#FFF' },
+  subtitle: { fontSize: 10, color: 'rgba(255,255,255,0.38)', marginTop: 1 },
+  headerActions: { flexDirection: 'row', gap: 2 },
+  iconBtn: { padding: 6 },
+
+  divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.06)' },
+
+  /* Messages */
+  messageList: { flex: 1 },
+  messageListContent: { padding: 10, paddingBottom: 6 },
+
+  /* Empty state */
+  empty: { flex: 1, alignItems: 'center', paddingTop: 20, paddingHorizontal: 14 },
+  emptyTitle: { fontSize: 14, fontWeight: '700', color: '#FFF', marginBottom: 4 },
   emptySub: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.4)',
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.38)',
     textAlign: 'center',
-    lineHeight: 19,
-    marginBottom: 24,
+    lineHeight: 16,
+    marginBottom: 16,
   },
-  chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center' },
+  chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center' },
   chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 18,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.09)',
+    borderColor: 'rgba(255,255,255,0.08)',
   },
-  chipText: { fontSize: 12, color: 'rgba(255,255,255,0.65)' },
+  chipText: { fontSize: 11, color: 'rgba(255,255,255,0.6)' },
+
+  /* Limit banner */
   limitBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginHorizontal: 14,
+    gap: 6,
+    marginHorizontal: 10,
     marginBottom: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
     backgroundColor: 'rgba(251,191,36,0.08)',
-    borderRadius: 10,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(251,191,36,0.2)',
   },
-  limitText: { fontSize: 13, color: '#FBBF24', fontWeight: '500' },
+  limitText: { fontSize: 11, color: '#FBBF24', fontWeight: '500' },
+
+  /* Input row */
   inputRow: {
     flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'flex-end',
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(0,0,0,0.2)',
   },
   input: {
     flex: 1,
     backgroundColor: 'rgba(255,255,255,0.07)',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
     color: '#FFF',
-    fontSize: 14,
+    fontSize: 13,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.09)',
-    maxHeight: 90,
+    borderColor: 'rgba(255,255,255,0.08)',
+    maxHeight: 72,
   },
   sendBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#4ADE80',
     alignItems: 'center',
     justifyContent: 'center',
-    alignSelf: 'flex-end',
   },
-  sendBtnDisabled: { opacity: 0.35 },
+  sendBtnOff: { opacity: 0.3 },
 });
