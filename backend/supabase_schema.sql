@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS routines (
     days          TEXT[] DEFAULT '{}',
     health_impact TEXT DEFAULT 'medium',
     location      TEXT DEFAULT '',
+    date          TEXT DEFAULT '',
     created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_routines_user_id ON routines(user_id);
@@ -43,6 +44,7 @@ CREATE INDEX IF NOT EXISTS idx_routines_user_id ON routines(user_id);
 -- If updating an existing database, run:
 -- ALTER TABLE routines ADD COLUMN IF NOT EXISTS health_impact TEXT DEFAULT 'medium';
 -- ALTER TABLE routines ADD COLUMN IF NOT EXISTS location TEXT DEFAULT '';
+-- ALTER TABLE routines ADD COLUMN IF NOT EXISTS date TEXT DEFAULT '';
 
 -- Symptom logs (many per user)
 CREATE TABLE IF NOT EXISTS symptoms (

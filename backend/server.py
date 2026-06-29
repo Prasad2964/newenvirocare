@@ -60,9 +60,10 @@ class RoutineRequest(BaseModel):
     activity: str
     time: str
     type: str = "outdoor"
-    days: List[str] = ["Mon", "Tue", "Wed", "Thu", "Fri"]
+    date: str = ""                  # YYYY-MM-DD (local date); falls back to today UTC
+    days: List[str] = []            # kept for backward-compat; ignored when date is set
     health_impact: str = "medium"   # low / medium / high
-    location: str = ""              # city; falls back to user's default_city
+    location: str = ""              # kept for compat; ignored — city from user settings
 
 class SymptomRequest(BaseModel):
     symptoms: List[str]
@@ -907,6 +908,8 @@ async def create_routine(req: RoutineRequest, user=Depends(get_current_user)):
         except Exception:
             location = "Mumbai"
 
+    routine_date = req.date.strip() or datetime.now(timezone.utc).date().isoformat()
+
     routine_id = str(uuid4())
     routine = {
         "routine_id": routine_id,
@@ -914,9 +917,8 @@ async def create_routine(req: RoutineRequest, user=Depends(get_current_user)):
         "activity": req.activity,
         "time": req.time,
         "type": req.type,
-        "days": req.days,
+        "date": routine_date,
         "health_impact": req.health_impact,
-        "location": location,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     supabase.table("routines").insert(routine).execute()
@@ -997,12 +999,18 @@ def _mark_routine_notified(routine_id: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @api_router.get("/routines/today-check")
-async def today_routine_check(user=Depends(get_current_user)):
+async def today_routine_check(user=Depends(get_current_user), date: str = ""):
     """
-    For every routine scheduled today, fetch live AQI and use Gemini to produce
-    a personalised safety assessment (SAFE / CAUTION / AVOID).
+    For every routine scheduled today (matched by local date from client),
+    fetch live AQI and use Gemini to produce a personalised safety assessment.
     """
-    today_abbr = datetime.now(timezone.utc).strftime("%a")   # "Mon", "Tue", …
+    # Use the local date sent by the client; fall back to UTC date
+    today_date = date.strip() or datetime.now(timezone.utc).date().isoformat()
+    # Also support legacy day-of-week routines
+    try:
+        today_abbr = datetime.strptime(today_date, "%Y-%m-%d").strftime("%a")
+    except Exception:
+        today_abbr = datetime.now(timezone.utc).strftime("%a")
 
     try:
         all_routines = supabase.table("routines").select("*") \
@@ -1011,7 +1019,11 @@ async def today_routine_check(user=Depends(get_current_user)):
         logger.error(f"today-check: routines fetch failed: {e}")
         all_routines = []
 
-    todays = [r for r in all_routines if today_abbr in (r.get("days") or [])]
+    todays = [
+        r for r in all_routines
+        if (r.get("date") or "") == today_date                           # new: date-based
+        or (not r.get("date") and today_abbr in (r.get("days") or []))  # legacy: days-based
+    ]
     todays.sort(key=lambda r: r.get("time", "00:00"))
 
     if not todays:

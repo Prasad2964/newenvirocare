@@ -20,6 +20,7 @@ import PressableScale from '../../src/components/PressableScale';
 import { SkeletonDashboard } from '../../src/components/Skeleton';
 import { COLORS, FONTS, FONT_SIZE, SPACING, RADIUS, getAqiTheme as getTokenTheme } from '../../src/utils/tokens';
 import { calculatePersonalizedRisk } from '../../src/utils/riskEngine';
+import { routineService } from '../../src/services/routineService';
 
 const INDIAN_CITIES = [
   'Agra','Agra - Manoharpur','Agra - Rohta','Agra - Sanjay Palace','Agra - Shahjahan Garden','Agra - Shastripuram',
@@ -260,8 +261,8 @@ export default function HomeScreen() {
       if (gam) setGamification(gam);
       if (exp) setExposure(exp);
 
-      // Today's routine check — non-blocking, best-effort
-      api.get('/api/routines/today-check')
+      // Today's routine check — non-blocking, passes device local date
+      routineService.getTodayCheck()
         .then((res: any) => { if (res?.assessments) setTodayRoutines(res.assessments.slice(0, 2)); })
         .catch(() => {});
 

@@ -5,9 +5,8 @@ export interface Routine {
   activity: string;
   time: string;
   type: string;
-  days: string[];
+  date: string;           // YYYY-MM-DD
   health_impact: 'low' | 'medium' | 'high';
-  location: string;
   created_at: string;
 }
 
@@ -44,9 +43,37 @@ export interface AddRoutinePayload {
   activity: string;
   time: string;
   type: string;
-  days: string[];
+  date: string;           // YYYY-MM-DD local date
   health_impact: 'low' | 'medium' | 'high';
-  location: string;
+}
+
+/** Returns today's date in YYYY-MM-DD using the device's local timezone. */
+export function getLocalDateString(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/** Formats a YYYY-MM-DD string as a human-readable label. */
+export function formatRoutineDate(dateStr: string): string {
+  if (!dateStr) return '';
+  const today = getLocalDateString();
+  const tomorrow = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+  if (dateStr === today) return 'Today';
+  if (dateStr === tomorrow) return 'Tomorrow';
+  try {
+    return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-IN', {
+      weekday: 'short', month: 'short', day: 'numeric',
+    });
+  } catch {
+    return dateStr;
+  }
 }
 
 export const routineService = {
@@ -59,8 +86,9 @@ export const routineService = {
   deleteRoutine: (routine_id: string): Promise<void> =>
     api.delete(`/api/routines/${routine_id}`),
 
+  /** Pass the device's local date so the backend filters correctly regardless of timezone. */
   getTodayCheck: (): Promise<TodayCheck> =>
-    api.get('/api/routines/today-check'),
+    api.get(`/api/routines/today-check?date=${getLocalDateString()}`),
 
   aiReschedule: (routine_id: string): Promise<RescheduleResult> =>
     api.post('/api/routines/ai-reschedule', { routine_id }),
