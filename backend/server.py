@@ -412,7 +412,12 @@ async def fetch_city_aqi(city: str) -> dict:
     waqi_token = os.environ.get('WAQI_TOKEN', '')
     if waqi_token:
         try:
-            uid = WAQI_STATION_UIDS.get(city.lower().strip())
+            city_key = city.lower().strip()
+            uid = WAQI_STATION_UIDS.get(city_key)
+            # Also resolve "Area, City" → "City - Area" format used in _ROUTE_CITIES
+            if not uid and "," in city_key:
+                area, base = city_key.split(",", 1)
+                uid = WAQI_STATION_UIDS.get(f"{base.strip()} - {area.strip()}")
             feed_path = f"@{uid}" if uid else city
             response = http_requests.get(
                 f"https://api.waqi.info/feed/{feed_path}/?token={waqi_token}",
@@ -1393,24 +1398,41 @@ async def get_travel_hotspots(user=Depends(get_current_user), body: dict = {}):
     origin_aqi = await fetch_city_aqi(origin)
     dest_aqi = await fetch_city_aqi(destination)
 
-    # Pick intermediate locations, excluding anything that belongs to origin or destination city.
-    origin_base = origin.split(" - ")[0].strip().lower()
-    dest_base = destination.split(" - ")[0].strip().lower()
-    candidates = [
-        c for c in _ROUTE_CITIES
-        if origin_base not in c.lower() and dest_base not in c.lower()
-    ]
+    def _city_base(name: str) -> str:
+        """Extract the base city from 'City - Station', 'Station, City', or 'City' formats."""
+        if " - " in name:
+            return name.split(" - ")[0].strip().lower()
+        if "," in name:
+            return name.split(",")[-1].strip().lower()
+        return name.strip().lower()
+
+    origin_base = _city_base(origin)
+    dest_base = _city_base(destination)
+    same_city = origin_base == dest_base
+
+    if same_city:
+        # Intra-city route: show other monitoring stations within this city
+        candidates = [
+            c for c in _ROUTE_CITIES
+            if (f", {origin_base}" in c.lower() or c.lower().startswith(f"{origin_base} - "))
+        ]
+        if len(candidates) < 2:
+            # Not enough stations in this city — fall back to nearby cities
+            candidates = [c for c in _ROUTE_CITIES if origin_base not in c.lower()]
+    else:
+        candidates = [
+            c for c in _ROUTE_CITIES
+            if origin_base not in c.lower() and dest_base not in c.lower()
+        ]
 
     random.seed(hash(origin + destination + str(datetime.now(timezone.utc).date())))
-    num_points = random.randint(3, 5)
+    num_points = random.randint(2, 3) if same_city else random.randint(3, 5)
     selected = random.sample(candidates, min(num_points, len(candidates)))
-
-    aqi_lo = max(10, min(origin_aqi["aqi"], dest_aqi["aqi"]) - 20)
-    aqi_hi = min(500, max(origin_aqi["aqi"], dest_aqi["aqi"]) + 40)
 
     midpoints = []
     for city in selected:
-        mid_aqi = max(10, min(500, random.randint(aqi_lo, aqi_hi)))
+        aqi_data = await fetch_city_aqi(city)
+        mid_aqi = aqi_data["aqi"]
         level = get_aqi_level(mid_aqi)
         midpoints.append({
             "name": city,
