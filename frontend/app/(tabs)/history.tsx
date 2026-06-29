@@ -163,22 +163,6 @@ export default function HistoryScreen() {
             ))}
           </View>
 
-          {/* Stats Summary */}
-          <View style={styles.statsRow}>
-            <GlassCard style={styles.statCard}>
-              <Text style={styles.statNumber}>{activities.length}</Text>
-              <Text style={styles.statLabel}>AQI Checks</Text>
-            </GlassCard>
-            <GlassCard style={styles.statCard}>
-              <Text style={styles.statNumber}>{notifications.length}</Text>
-              <Text style={styles.statLabel}>Alerts</Text>
-            </GlassCard>
-            <GlassCard style={styles.statCard}>
-              <Text style={styles.statNumber}>{symptoms.length}</Text>
-              <Text style={styles.statLabel}>Symptoms</Text>
-            </GlassCard>
-          </View>
-
           {/* Items */}
           {loading ? (
             <View style={styles.loadingState}>
@@ -216,10 +200,6 @@ const styles = StyleSheet.create({
   filterBtnActive: { backgroundColor: 'rgba(74,222,128,0.1)', borderColor: 'rgba(74,222,128,0.3)' },
   filterText: { fontSize: 13, color: 'rgba(255,255,255,0.4)', fontWeight: '600' },
   filterTextActive: { color: '#4ADE80' },
-  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
-  statCard: { flex: 1, alignItems: 'center', padding: 14 },
-  statNumber: { fontSize: 24, fontWeight: '800', color: '#FFF' },
-  statLabel: { fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
   itemCard: { marginBottom: 10, padding: 16 },
   itemHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   iconBadge: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },

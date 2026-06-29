@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  RefreshControl, AppState, Platform, ActivityIndicator, TextInput,
+  RefreshControl, AppState, Platform, ActivityIndicator, TextInput, FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +20,45 @@ import PressableScale from '../../src/components/PressableScale';
 import { SkeletonDashboard } from '../../src/components/Skeleton';
 import { COLORS, FONTS, FONT_SIZE, SPACING, RADIUS, getAqiTheme as getTokenTheme } from '../../src/utils/tokens';
 import { calculatePersonalizedRisk } from '../../src/utils/riskEngine';
+
+const INDIAN_CITIES = [
+  'Agra','Agra - Manoharpur','Agra - Rohta','Agra - Sanjay Palace','Agra - Shahjahan Garden','Agra - Shastripuram',
+  'Ahmedabad','Ahmedabad - Airport Hansol','Ahmedabad - Bopal','Ahmedabad - Chandkheda','Ahmedabad - Gyaspur','Ahmedabad - Maninagar','Ahmedabad - Phase-4 GIDC','Ahmedabad - SAC ISRO Satellite',
+  'Ajmer','Aligarh','Allahabad','Amravati','Amritsar','Amritsar - Golden Temple','Asansol','Aurangabad',
+  'Bangalore','Bangalore - BTM Layout','Bangalore - Hebbal','Bangalore - Silk Board',
+  'Bareilly','Belgaum','Bhavnagar','Bhilai','Bhiwandi','Bhopal','Bhopal - Paryavaran Parisar','Bhopal - T T Nagar','Bhubaneswar','Bikaner',
+  'Chandigarh','Chandigarh - Sector 22','Chandigarh - Sector-25','Chandigarh - Sector-53','Chandigarh - Sector 6 Panchkula',
+  'Chennai','Chennai - Arumbakkam','Chennai - Kodungaiyur','Chennai - Manali','Chennai - Manali Village','Chennai - Perungudi','Chennai - Royapuram','Chennai - Velachery',
+  'Coimbatore','Coimbatore - SIDCO Kurichi','Cuttack','Davanagere','Dehradun','Dehradun - Doon University',
+  'Delhi','Delhi - Anand Vihar','Delhi - Dwarka','Delhi - Okhla','Delhi - Punjabi Bagh','Delhi - RK Puram','Delhi - Rohini',
+  'Dhanbad','Durgapur','Erode',
+  'Faridabad','Faridabad - Dr Karni Singh Range','Faridabad - New Industrial Town','Faridabad - Sector 11','Faridabad - Sector 30',
+  'Gaya','Ghaziabad','Ghaziabad - Indirapuram','Ghaziabad - Sanjay Nagar','Ghaziabad - Sector-62','Ghaziabad - Vasundhara',
+  'Gorakhpur','Gulbarga','Guntur',
+  'Gurgaon','Gurgaon - Aya Nagar','Gurgaon - Gwal Pahari','Gurgaon - Sector-51','Gurgaon - Teri Gram','Gurgaon - Vikas Sadan',
+  'Guwahati','Guwahati - Pan Bazaar','Guwahati - Railway Colony','Gwalior',
+  'Hyderabad','Hyderabad - Central University','Hyderabad - ECIL Kapra','Hyderabad - Kokapet','Hyderabad - Kompally','Hyderabad - Nacharam','Hyderabad - New Malakpet','Hyderabad - Sanathnagar','Hyderabad - Somajiguda','Hyderabad - Zoo Park',
+  'Hubballi-Dharwad','Indore','Jabalpur',
+  'Jaipur','Jaipur - Adarsh Nagar','Jaipur - Police Commissionerate',
+  'Jalandhar','Jalgaon','Jamnagar','Jammu','Jamshedpur','Jhansi','Jodhpur','Jodhpur - Collectorate',
+  'Kanpur','Kanpur - Kidwai Nagar','Kanpur - Nehru Nagar','Kanpur - NSI Kalyanpur',
+  'Kochi','Kolhapur',
+  'Kolkata','Kolkata - Ballygunge','Kolkata - Belur Math','Kolkata - Bidhannagar','Kolkata - Fort William','Kolkata - Ghusuri','Kolkata - Jadavpur','Kolkata - Padmapukur','Kolkata - Rabindra Bharati University','Kolkata - Rabindra Sarobar','Kolkata - Victoria',
+  'Kota','Kozhikode',
+  'Lucknow','Lucknow - Ambedkar University','Lucknow - Central School','Lucknow - Gomti Nagar','Lucknow - Kukrail','Lucknow - Lalbagh','Lucknow - Talkatora',
+  'Ludhiana','Ludhiana - PAU',
+  'Madurai','Maheshtala','Malegaon','Mangalore','Meerut','Moradabad',
+  'Mumbai','Mumbai - Airport','Mumbai - Andheri','Mumbai - Bandra Kurla Complex','Mumbai - Bhandup','Mumbai - Borivali','Mumbai - Colaba','Mumbai - Deonar','Mumbai - Kurla','Mumbai - Malad','Mumbai - Mazgaon','Mumbai - Mulund','Mumbai - Navy Nagar Colaba','Mumbai - Powai','Mumbai - Siddharth Nagar Worli','Mumbai - Sion','Mumbai - Worli',
+  'Mysore','Nagpur','Nagpur - Civil Lines','Nanded','Nashik','Nashik - Gangapur Road','Nellore',
+  'Noida','Noida - Indirapuram','Noida - Knowledge Park-V','Noida - Mother Dairy Plant','Noida - Sector-1','Noida - Sector-62','Noida - Sector-116','Noida - Sector-125',
+  'Patna','Patna - IGSC Planetarium','Patna - Industrial Area','Patna - Muradpur','Patna - Rajbansi Nagar','Patna - Samanpura','Patna - Shikarpur',
+  'Pimpri-Chinchwad','Pune','Raipur','Rajkot','Ranchi',
+  'Saharanpur','Salem','Sangli','Siliguri','Solapur','Srinagar','Surat','Thane',
+  'Thiruvananthapuram','Thiruvananthapuram - Kariavattom','Thiruvananthapuram - Plammoodu',
+  'Tiruchirappalli','Tirunelveli','Udaipur','Ujjain','Ulhasnagar','Vadodara',
+  'Varanasi','Varanasi - Ardhali Bazar','Varanasi - Banaras Hindu University','Varanasi - Bhelupur','Varanasi - Maldahiya',
+  'Vijayawada','Visakhapatnam','Visakhapatnam - GVM Corporation','Warangal',
+];
 
 // GPS first, IP geo as fallback. Returns coords when GPS succeeds so the
 // caller can hit WAQI's geo endpoint for the nearest station.
@@ -74,6 +113,8 @@ export default function HomeScreen() {
   const [error, setError] = useState(false);
   const [cityInputMode, setCityInputMode] = useState(false);
   const [cityInputValue, setCityInputValue] = useState('');
+  const [cityDropdownOpen, setCityDropdownOpen] = useState(false);
+  const [cityDropdownQuery, setCityDropdownQuery] = useState('');
   const [locationPrompt, setLocationPrompt] = useState<string | null>(null);
   const [detectingLocation, setDetectingLocation] = useState(false);
   const coordsRef = useRef<{ lat: number; lon: number } | null>(null);
@@ -288,6 +329,23 @@ export default function HomeScreen() {
     fetchData();
   }
 
+  const cityDropdownFiltered = useMemo(
+    () => cityDropdownQuery.trim()
+      ? INDIAN_CITIES.filter(c => c.toLowerCase().includes(cityDropdownQuery.toLowerCase()))
+      : INDIAN_CITIES,
+    [cityDropdownQuery],
+  );
+
+  async function handleDropdownCitySelect(newCity: string) {
+    setCityDropdownOpen(false);
+    setCityDropdownQuery('');
+    setLocationPrompt(null);
+    await saveCity(newCity);
+    setCity(newCity);
+    setRefreshing(true);
+    fetchData();
+  }
+
   useEffect(() => {
     if (Platform.OS === 'web') {
       requestWebNotificationPermission();
@@ -432,48 +490,26 @@ export default function HomeScreen() {
           <View style={styles.header}>
             <View style={styles.headerLeft}>
               <Text style={styles.greeting}>Hello, {user?.name || 'User'}</Text>
-              {/* City row — edit mode vs display mode */}
-              {cityInputMode ? (
-                <View style={styles.cityEditRow}>
-                  <Ionicons name="location" size={14} color={tokenTheme.primary} />
-                  <TextInput
-                    style={[styles.cityInlineInput, { color: tokenTheme.primary }]}
-                    value={cityInputValue}
-                    onChangeText={setCityInputValue}
-                    placeholder={city || 'Enter city'}
-                    placeholderTextColor={COLORS.textMuted}
-                    autoFocus
-                    returnKeyType="done"
-                    autoCapitalize="words"
-                    onSubmitEditing={handleManualCitySubmit}
+              {/* City dropdown trigger */}
+              <TouchableOpacity
+                style={styles.cityRow}
+                onPress={() => setCityDropdownOpen(o => !o)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="location" size={14} color={tokenTheme.primary} />
+                <Text style={[styles.cityLabel, { color: tokenTheme.primary }]} numberOfLines={1}>
+                  {city || 'Select city'}
+                </Text>
+                {detectingLocation ? (
+                  <ActivityIndicator size="small" color={COLORS.textMuted} style={styles.detectingSpinner} />
+                ) : (
+                  <Ionicons
+                    name={cityDropdownOpen ? 'chevron-up' : 'chevron-down'}
+                    size={12}
+                    color="rgba(255,255,255,0.4)"
                   />
-                  <TouchableOpacity onPress={handleManualCitySubmit} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <Ionicons name="checkmark" size={16} color={COLORS.accent} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => { setCityInputMode(false); setCityInputValue(''); }}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons name="close" size={16} color={COLORS.textMuted} />
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <View style={styles.cityRow}>
-                  <Ionicons name="location" size={14} color={tokenTheme.primary} />
-                  <Text style={[styles.cityLabel, { color: tokenTheme.primary }]}>{city}</Text>
-                  {detectingLocation ? (
-                    <ActivityIndicator size="small" color={COLORS.textMuted} style={styles.detectingSpinner} />
-                  ) : (
-                    <TouchableOpacity
-                      onPress={() => { setCityInputMode(true); setCityInputValue(''); }}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      style={styles.cityEditBtn}
-                    >
-                      <Ionicons name="pencil-outline" size={12} color={COLORS.textMuted} />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
+                )}
+              </TouchableOpacity>
             </View>
             <View style={styles.headerRight}>
               <TouchableOpacity testID="settings-btn" style={styles.iconBtn} onPress={() => router.push('/settings')}>
@@ -484,6 +520,62 @@ export default function HomeScreen() {
               </View>
             </View>
           </View>
+
+          {/* City dropdown list — expands inline below the header */}
+          {cityDropdownOpen && (
+            <View style={styles.cityDropdownContainer}>
+              <View style={styles.cityDropdownSearch}>
+                <Ionicons name="search" size={14} color="rgba(255,255,255,0.35)" />
+                <TextInput
+                  style={styles.cityDropdownSearchInput}
+                  placeholder="Search city..."
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  value={cityDropdownQuery}
+                  onChangeText={setCityDropdownQuery}
+                  autoCapitalize="words"
+                  autoFocus
+                />
+                {cityDropdownQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => setCityDropdownQuery('')} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                    <Ionicons name="close-circle" size={14} color="rgba(255,255,255,0.3)" />
+                  </TouchableOpacity>
+                )}
+              </View>
+              <FlatList
+                data={cityDropdownFiltered}
+                keyExtractor={item => item}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+                showsVerticalScrollIndicator
+                style={styles.cityDropdownFlatList}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.cityDropdownItem,
+                      item === city && { backgroundColor: tokenTheme.primary + '20' },
+                    ]}
+                    onPress={() => handleDropdownCitySelect(item)}
+                    activeOpacity={0.6}
+                  >
+                    <Ionicons
+                      name={item === city ? 'location' : 'location-outline'}
+                      size={14}
+                      color={item === city ? tokenTheme.primary : 'rgba(255,255,255,0.3)'}
+                    />
+                    <Text style={[styles.cityDropdownItemText, item === city && { color: tokenTheme.primary, fontWeight: '700' }]}>
+                      {item}
+                    </Text>
+                    {item === city && (
+                      <Ionicons name="checkmark" size={14} color={tokenTheme.primary} style={{ marginLeft: 'auto' }} />
+                    )}
+                  </TouchableOpacity>
+                )}
+                ListEmptyComponent={
+                  <Text style={styles.cityDropdownEmpty}>No cities match "{cityDropdownQuery}"</Text>
+                }
+              />
+            </View>
+          )}
 
           {/* Breathing Orb — tap to open live AQI map */}
           <TouchableOpacity
@@ -698,17 +790,34 @@ const styles = StyleSheet.create({
   headerLeft: { flex: 1, paddingRight: 8 },
   greeting: { fontSize: FONT_SIZE.xl + 4, fontFamily: FONTS.heading, color: COLORS.textWhite },
   cityRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
-  cityLabel: { fontSize: FONT_SIZE.md, fontFamily: FONTS.bodyMedium },
-  cityEditBtn: { marginLeft: 4 },
+  cityLabel: { fontSize: FONT_SIZE.md, fontFamily: FONTS.bodyMedium, flex: 1 },
   detectingSpinner: { marginLeft: 4 },
 
-  // Inline city edit in header
-  cityEditRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
-  cityInlineInput: {
-    flex: 1, fontSize: FONT_SIZE.md, fontFamily: FONTS.bodyMedium,
-    borderBottomWidth: 1, borderBottomColor: COLORS.border, paddingVertical: 2,
-    minWidth: 80,
+  // City dropdown (inline, expands below header)
+  cityDropdownContainer: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    marginBottom: SPACING.lg,
+    overflow: 'hidden',
   },
+  cityDropdownSearch: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 12, paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  cityDropdownSearchInput: { flex: 1, color: '#FFF', fontSize: 13, paddingVertical: 0 },
+  cityDropdownFlatList: { maxHeight: 220 },
+  cityDropdownItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 14, paddingVertical: 11,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  cityDropdownItemText: { flex: 1, fontSize: 14, color: 'rgba(255,255,255,0.7)', fontWeight: '500' },
+  cityDropdownEmpty: { padding: 16, textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 13 },
 
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   iconBtn: {
