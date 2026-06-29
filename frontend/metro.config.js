@@ -11,13 +11,20 @@ config.cacheStores = [
   new FileStore({ root: path.join(root, 'cache') }),
 ];
 
-
-// // Exclude unnecessary directories from file watching
-// config.watchFolders = [__dirname];
-// config.resolver.blacklistRE = /(.*)\/(__tests__|android|ios|build|dist|.git|node_modules\/.*\/android|node_modules\/.*\/ios|node_modules\/.*\/windows|node_modules\/.*\/macos)(\/.*)?$/;
-
-// // Alternative: use a more aggressive exclusion pattern
-// config.resolver.blacklistRE = /node_modules\/.*\/(android|ios|windows|macos|__tests__|\.git|.*\.android\.js|.*\.ios\.js)$/;
+// Force Babel to transform react-native core files that ship with private class
+// fields (#privateField syntax). Without this, Hermes in older Expo Go builds
+// rejects the syntax with "private properties are not supported".
+config.transformer.transformIgnorePatterns = [
+  'node_modules/(?!(react-native|@react-native|expo|@expo|@expo-google-fonts|' +
+  'expo-router|expo-modules-core|expo-font|expo-web-browser|expo-blur|' +
+  'expo-linear-gradient|expo-location|expo-notifications|expo-image|' +
+  'expo-haptics|expo-constants|expo-status-bar|expo-splash-screen|' +
+  'expo-system-ui|expo-symbols|expo-image-picker|expo-auth-session|' +
+  'expo-crypto|expo-device|expo-linking|' +
+  'react-native-gesture-handler|react-native-reanimated|react-native-worklets|' +
+  'react-native-safe-area-context|react-native-screens|react-native-svg|' +
+  'react-native-webview|@react-navigation|@react-native-async-storage)/)',
+];
 
 // Reduce the number of workers to decrease resource usage
 config.maxWorkers = 2;
