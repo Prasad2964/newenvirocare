@@ -340,6 +340,7 @@ export default function HomeScreen() {
     setCityDropdownOpen(false);
     setCityDropdownQuery('');
     setLocationPrompt(null);
+    coordsRef.current = null; // clear GPS coords so city-name endpoint is used
     await saveCity(newCity);
     setCity(newCity);
     setRefreshing(true);
