@@ -107,8 +107,6 @@ export default function HomeScreen() {
   const [aqiData, setAqiData] = useState<any>(null);
   const [riskData, setRiskData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [gamification, setGamification] = useState<any>(null);
-  const [exposure, setExposure] = useState<any>(null);
   const [todayRoutines, setTodayRoutines] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [city, setCity] = useState('');
@@ -254,13 +252,6 @@ export default function HomeScreen() {
         description: `AQI ${aqi?.aqi} - ${aqi?.level}`,
       }).catch(() => {});
 
-      const [gam, exp] = await Promise.all([
-        api.get('/api/gamification').catch(() => null),
-        api.get('/api/exposure/summary').catch(() => null),
-      ]);
-      if (gam) setGamification(gam);
-      if (exp) setExposure(exp);
-
       // Today's routine check — non-blocking, passes device local date
       routineService.getTodayCheck()
         .then((res: any) => { if (res?.assessments) setTodayRoutines(res.assessments.slice(0, 2)); })
@@ -298,6 +289,11 @@ export default function HomeScreen() {
       const threshold = getPersonalizedThreshold(conditionsRef.current);
       if (aqi?.aqi >= threshold) {
         sendAqiAlert(aqi.aqi, activeCity, aqi.level, conditionsRef.current).catch(() => {});
+        // Web fallback: browser notifications require explicit permission;
+        // always show an in-app toast so the alert is visible on the dashboard.
+        if (Platform.OS === 'web') {
+          showToast(`AQI ${aqi.aqi} in ${activeCity} — exceeds your personalised threshold`, 'warning');
+        }
       }
     } catch (e) {
       setError(true);
@@ -372,7 +368,11 @@ export default function HomeScreen() {
           const threshold = getPersonalizedThreshold(conditionsRef.current);
           if (aqi?.aqi >= threshold) {
             sendAqiAlert(aqi.aqi, city, aqi.level, conditionsRef.current).catch(() => {});
-            if (aqi.aqi > 200) showToast(`AQI Alert: ${city} is ${aqi.aqi}!`, 'warning');
+            if (Platform.OS === 'web') {
+              showToast(`AQI ${aqi.aqi} in ${city} — exceeds your personalised threshold`, 'warning');
+            } else if (aqi.aqi > 200) {
+              showToast(`AQI Alert: ${city} is ${aqi.aqi}!`, 'warning');
+            }
           }
         }).catch(() => {});
       }
@@ -708,29 +708,6 @@ export default function HomeScreen() {
             </PressableScale>
           </View>
 
-          {/* Exposure Tracker */}
-          {exposure && (
-            <GlassCard testID="exposure-card" glowColor={tokenTheme.primary}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>Air Exposure</Text>
-                <Ionicons name="timer-outline" size={18} color={COLORS.textMuted} />
-              </View>
-              <View style={styles.exposureRow}>
-                <View style={styles.exposureItem}>
-                  <Text style={[styles.exposureBig, { color: exposure.today.unhealthy_minutes > 60 ? COLORS.danger : COLORS.accent }]}>
-                    {exposure.today.unhealthy_minutes || 0}m
-                  </Text>
-                  <Text style={styles.exposureLabel}>Unhealthy Air Today</Text>
-                </View>
-                <View style={styles.exposureDivider} />
-                <View style={styles.exposureItem}>
-                  <Text style={styles.exposureBig}>{exposure.week.entries || 0}</Text>
-                  <Text style={styles.exposureLabel}>Checks This Week</Text>
-                </View>
-              </View>
-            </GlassCard>
-          )}
-
           {/* Today's Routines preview */}
           {todayRoutines.length > 0 && (
             <GlassCard testID="today-routines-card" glowColor="#06B6D4">
@@ -756,31 +733,6 @@ export default function HomeScreen() {
                   </View>
                 );
               })}
-            </GlassCard>
-          )}
-
-          {/* Gamification */}
-          {gamification && (
-            <GlassCard testID="gamification-card" glowColor={COLORS.warning}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>Your Progress</Text>
-                <View style={styles.streakBadge}>
-                  <Ionicons name="flame" size={14} color={COLORS.warning} />
-                  <Text style={styles.streakText}>{gamification.streak} day streak</Text>
-                </View>
-              </View>
-              <View style={styles.badgeRow}>
-                {gamification.badges?.slice(0, 4).map((b: any) => (
-                  <View key={b.id} style={[styles.badge, !b.earned && styles.badgeLocked]}>
-                    <Ionicons name={b.icon as any} size={20} color={b.earned ? COLORS.warning : COLORS.textMuted} />
-                    <Text style={[styles.badgeName, !b.earned && styles.badgeNameLocked]}>{b.name}</Text>
-                  </View>
-                ))}
-              </View>
-              <View style={styles.scoreBar}>
-                <View style={[styles.scoreBarFill, { width: `${Math.min(gamification.score || 0, 100)}%` }]} />
-              </View>
-              <Text style={styles.scoreLabel}>Score: {gamification.score || 0}/100</Text>
             </GlassCard>
           )}
 

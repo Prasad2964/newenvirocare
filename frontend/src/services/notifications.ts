@@ -42,7 +42,12 @@ export async function registerForPushNotifications(): Promise<string | null> {
 // ─── Cross-platform local notification ───────────────────────────────────────
 export async function sendLocalNotification(title: string, body: string, data?: any) {
   if (Platform.OS === 'web') {
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    // If permission not yet decided, ask now (requires a prior user gesture in Chrome)
+    if (Notification.permission === 'default') {
+      await Notification.requestPermission().catch(() => {});
+    }
+    if (Notification.permission === 'granted') {
       new Notification(title, { body, icon: '/favicon.ico', tag: data?.type || 'aqi' });
     }
     return;
